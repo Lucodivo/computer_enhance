@@ -153,7 +153,7 @@ void read8086Mnemonic() {
 
 
     printf(
-        "=== DEBUG ==="
+        "=== DEBUG ===\n"
         "op code: %s\n"
         "D: %i - %s\n"
         "W: %i - %s\n"
@@ -164,12 +164,24 @@ void read8086Mnemonic() {
         w, registerWidth,
         destName, srcName);
 
-
-    printf(
+    const char* FORMAT_STR = 
         "; Instruction decoding on the 8086 Homework by Connor Haskins\n\n"
         "bits 16\n"
-        "%s %s, %s\n", 
-        op, destName, srcName);
+        "%s %s, %s\n";
+
+    u32 fileTextSize = snprintf(NULL, 0, FORMAT_STR, op, destName, srcName);
+    char* fileText = (char *)malloc((fileTextSize + 1) * sizeof(char)); // +1 for null terminator
+    sprintf(fileText, FORMAT_STR, op, destName, srcName);
+    printf(fileText);
+
+    if(!makeDirectory("output")) {
+        printf("Failed to create output directory!");
+    } else {
+        fileptr = fopen("output\\listing_0037_single_register_mov.asm", "w");
+        fwrite(fileText, fileTextSize, 1, fileptr);
+        fclose(fileptr);
+    }
 
     free(buffer);
+    free(fileText);
 }

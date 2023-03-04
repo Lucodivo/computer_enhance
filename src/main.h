@@ -50,5 +50,7 @@ typedef s32 b32;
 
 #define InvalidCodePath Assert(!"InvalidCodePath");
 
+#include "platform_windows.h"
+
 #include "add.cpp"
 #include "8086.cpp"
