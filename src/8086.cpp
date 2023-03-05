@@ -99,89 +99,87 @@ const char* dRegister(u8 d) {
     }
 }
 
+
+#define SINGLE_OP_FILE "listing_0037_single_register_mov"
+#define MANY_OP_FILE "listing_0038_many_register_mov"
+
+#define INPUT_ASM_FOLDER "data\\asm"
+#define INPUT_FILE_NAME MANY_OP_FILE
+#define INPUT_FILE_LOCATION INPUT_ASM_FOLDER"\\"INPUT_FILE_NAME
+#define OUTPUT_FOLDER "output"
+#define OUTPUT_FILE_LOCATION OUTPUT_FOLDER"\\"INPUT_FILE_NAME".asm"
+#define LONGEST_OP "move ax, bx\n"
+#define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n\n"
 void read8086Mnemonic() {
     FILE *fileptr;
     char *buffer;
-    long filelen;
+    long fileLen;
 
-    fileptr = fopen("data\\asm\\listing_0037_single_register_mov", "rb");
+    fileptr = fopen(INPUT_FILE_LOCATION, "rb");
     fseek(fileptr, 0, SEEK_END);
-    filelen = ftell(fileptr);
+    fileLen = ftell(fileptr);
+    Assert((fileLen % 2) == 0);
     rewind(fileptr);
 
-    buffer = (char *)malloc(filelen * sizeof(char));
-    fread(buffer, filelen, 1, fileptr);
+    buffer = (char *)malloc(fileLen * sizeof(char));
+    fread(buffer, fileLen, 1, fileptr);
     fclose(fileptr);
 
-    u8 firstByte = buffer[0];
-    
-    u8 OP_MASK = 0b11111100;
-    u8 opCode = firstByte >> 2;
-    const char* op = opName(opCode);
+    Assert(makeDirectory(OUTPUT_FOLDER));
 
-    u8 D_MASK = 0b00000010;
-    u8 d = (firstByte & D_MASK) >> 1;
-    const char* registerDestination = dRegister(d);
+    fileptr = fopen(OUTPUT_FILE_LOCATION, "w");
+    Assert(fileptr);
+    fwrite(OUTPUT_FILE_HEADER, sizeof(OUTPUT_FILE_HEADER) - 1, 1, fileptr);
+    printf(OUTPUT_FILE_HEADER);
     
-    u8 W_MASK = 0b00000001;
-    u8 w = (firstByte & W_MASK);
-    const char* registerWidth = wWidth(w);
+    u32 opCount = fileLen / 2;
+    char* fileText = (char *)malloc(sizeof(LONGEST_OP));
+    for(u32 i = 0; i < opCount; i++) {
+        u32 firstByteIndex = i * 2;
+        u8 firstByte = buffer[firstByteIndex];
+        
+        u8 OP_MASK = 0b11111100;
+        u8 opCode = firstByte >> 2;
+        const char* op = opName(opCode);
 
-    u8 secondByte = buffer[1];
-    
-    u8 MODE_MASK = 0b11000000;
-    u8 mode = secondByte >> 6;
-    // TODO: debug mode information
+        u8 D_MASK = 0b00000010;
+        u8 d = (firstByte & D_MASK) >> 1;
+        const char* registerDestination = dRegister(d);
+        
+        u8 W_MASK = 0b00000001;
+        u8 w = (firstByte & W_MASK);
+        const char* registerWidth = wWidth(w);
 
-    u8 REG_MASK = 0b00111000;
-    u8 reg = (secondByte & REG_MASK) >> 3;
-    const char* registerName = registerSlotName(reg, w);
-    
-    u8 R_M_MASK = 0b00000111;
-    u8 regMem = secondByte & R_M_MASK;
-    const char* regMemName = registerSlotName(regMem, w);
+        u8 secondByte = buffer[firstByteIndex + 1];
+        
+        u8 MODE_MASK = 0b11000000;
+        u8 mode = secondByte >> 6;
+        // TODO: debug mode information
 
-    const char* srcName;
-    const char* destName;
-    if(d == D_REGISTER_IS_DEST) {
-        destName = registerName;
-        srcName = regMemName;
-    } else {
-        destName = regMemName;
-        srcName = registerName;
+        u8 REG_MASK = 0b00111000;
+        u8 reg = (secondByte & REG_MASK) >> 3;
+        const char* registerName = registerSlotName(reg, w);
+        
+        u8 R_M_MASK = 0b00000111;
+        u8 regMem = secondByte & R_M_MASK;
+        const char* regMemName = registerSlotName(regMem, w);
+
+        const char* srcName;
+        const char* destName;
+        if(d == D_REGISTER_IS_DEST) {
+            destName = registerName;
+            srcName = regMemName;
+        } else {
+            destName = regMemName;
+            srcName = registerName;
+        }
+
+        const char* FORMAT_STR = "%s %s, %s\n";
+        u32 opCharSize = sprintf(fileText, FORMAT_STR, op, destName, srcName);
+        fwrite(fileText, opCharSize, 1, fileptr);
+        printf(fileText);
     }
-
-
-    printf(
-        "=== DEBUG ===\n"
-        "op code: %s\n"
-        "D: %i - %s\n"
-        "W: %i - %s\n"
-        "Dest: %s\n"
-        "Src: %s\n\n\n",
-        op,
-        d, registerDestination,
-        w, registerWidth,
-        destName, srcName);
-
-    const char* FORMAT_STR = 
-        "; Instruction decoding on the 8086 Homework by Connor Haskins\n\n"
-        "bits 16\n"
-        "%s %s, %s\n";
-
-    u32 fileTextSize = snprintf(NULL, 0, FORMAT_STR, op, destName, srcName);
-    char* fileText = (char *)malloc((fileTextSize + 1) * sizeof(char)); // +1 for null terminator
-    sprintf(fileText, FORMAT_STR, op, destName, srcName);
-    printf(fileText);
-
-    if(!makeDirectory("output")) {
-        printf("Failed to create output directory!");
-    } else {
-        fileptr = fopen("output\\listing_0037_single_register_mov.asm", "w");
-        fwrite(fileText, fileTextSize, 1, fileptr);
-        fclose(fileptr);
-    }
-
-    free(buffer);
     free(fileText);
+    fclose(fileptr);
+    free(buffer);
 }
