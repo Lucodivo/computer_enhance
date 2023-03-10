@@ -12,28 +12,87 @@ const char D_REGISTER_IS_DEST = 0b1;
 const char W_OPERANDS_ARE_BYTES = 0b0;
 const char W_OPERANDS_ARE_WORDS = 0b1;
 
-struct Registers {
+#define SINGLE_OP_FILE "listing_0037_single_register_mov"
+#define MANY_OP_FILE "listing_0038_many_register_mov"
+#define MORE_OP_FILE "listing_0039_more_movs"
+#define CHALLENGE_OP_FILE "listing_0040_challenge_movs"
+
+#define INPUT_ASM_FOLDER "data\\asm"
+#define INPUT_FILE_NAME MORE_OP_FILE
+#define INPUT_FILE_LOCATION INPUT_ASM_FOLDER"\\"INPUT_FILE_NAME
+#define OUTPUT_FOLDER "output"
+#define OUTPUT_FILE_LOCATION OUTPUT_FOLDER"\\"INPUT_FILE_NAME".asm"
+#define LONGEST_OP "move ax, bx\n"
+#define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n\n"
+
+enum X86_OP {
+    X86_OP_MOV_RM_TO_REG,
+    X86_OP_MOV_IMM_TO_RM,
+    X86_OP_MOV_IMM_TO_REG,
+    X86_OP_MOV_MEM_TO_ACC,
+    X86_OP_MOV_ACC_TO_MEM
+};
+
+enum X86_REG {
+    X86_REG_AX, X86_REG_CX, X86_REG_DX, X86_REG_BX,
+    X86_REG_SP, X86_REG_BP, X86_REG_SI, X86_REG_DI,
+
+    X86_REG_AL, X86_REG_CL, X86_REG_DL, X86_REG_BL,
+    X86_REG_AH, X86_REG_CH, X86_REG_DH, X86_REG_BH
+};
+
+enum DIRECTION {
+    DIR_REG_IS_SRC,
+    DIR_REG_IS_DST
+};
+
+enum WIDTH {
+    WIDTH_BYTE,
+    WIDTH_WORD
+};
+
+enum MODE_FLAGS {
+    MODE_FLAGS_REG = 1 << 0,
+    MODE_FLAGS_REG1_EFF_ADDR = 1 << 1,
+    MODE_FLAGS_REG2_EFF_ADDR = 1 << 2,
+    MODE_FLAGS_HAS_DISPLACE_8BIT = 1 << 3,
+    MODE_FLAGS_HAS_DISPLACE_16BIT = 1 << 4
+};
+
+struct Mode {
+    X86_REG reg1;
+    X86_REG reg2;
+    u8 operandFlags;
+};
+
+enum OPERAND_FLAGS {
+    OPERAND_FLAGS_REG = 1 << 0,
+    OPERAND_FLAGS_MEM_REG1 = 1 << 1,
+    OPERAND_FLAGS_MEM_REG2 = 1 << 2,
+    OPERAND_FLAGS_DISPLACEMENT_8BITS = 1 << 3,
+    OPERAND_FLAGS_DISPLACEMENT_16BITS = 1 << 4,
+    OPERAND_FLAGS_IMM_8BITS = 1 << 5,
+    OPERAND_FLAGS_IMM_16BITS = 1 << 6
+};
+
+struct X86Operand {
     union {
-        struct{
-            u16 ax;
-            u16 cx;
-            u16 dx;
-            u16 bx;
-            u16 sp;
-            u16 bp;
-            u16 si;
-            u16 di;
-        };
-        u16 slot16[8];
+        X86_REG reg;
+        X86_REG reg1;
     };
-    u8* slot8(u8 regCode) {
-        u8 highMask = 0b100;
-        u8 regMask = 0b011;
+    X86_REG reg2;
+    union {
+        u16 displacement;
+        u16 immediate;
+    };
+    u8 flags;
+};
 
-        Assert(regCode >= 0b000 && regCode <= 0b111);
-
-        return ((u8*)slot16[regCode & regMask]) + ((regCode & highMask) >> 2);
-    }
+struct DecodedOp {
+    X86_OP op;
+    X86Operand firstOperand;
+    X86Operand secondOperand;
+    u8* nextByte;
 };
 
 const char* registerSlot16Name(u8 regCode) {
@@ -62,124 +121,263 @@ const char* registerSlotName(u8 regCode, u8 w) {
     }
 }
 
-const char* opName(u8 opCode) {
-    Assert(opCode >= 0b000000 && opCode <= 0b111111);
-
-    switch(opCode) {
-        case INSTR_OP_MOV:
-            return "mov";
-        default:
-            return "unk";
-    }
+X86_REG decodeRegByte(u8 regCode) {
+    X86_REG regs[] {
+        X86_REG_AL, X86_REG_CL, X86_REG_DL, X86_REG_BL,
+        X86_REG_AH, X86_REG_CH, X86_REG_DH, X86_REG_BH
+    };
+    Assert(regCode >= 0b000 && regCode <= 0b111);
+    return regs[regCode];
 }
 
-const char* wWidth(u8 w) {
-    Assert(w >= 0b0 && w <= 0b1);
-
-    switch(w) {
-        case W_OPERANDS_ARE_BYTES:
-            return "byte";
-        case W_OPERANDS_ARE_WORDS:
-            return "word";
-        default:
-            return "unk";
-    }
+X86_REG decodeRegWord(u8 regCode) {
+    X86_REG regs[] {
+        X86_REG_AX, X86_REG_CX, X86_REG_DX, X86_REG_BX,
+        X86_REG_SP, X86_REG_BP, X86_REG_SI, X86_REG_DI
+    };
+    Assert(regCode >= 0b000 && regCode <= 0b111);
+    return regs[regCode];
 }
 
-const char* dRegister(u8 d) {
+X86_REG decodeReg(u8 reg, WIDTH width) {
+    switch(width) {
+        case WIDTH_BYTE:
+            return decodeRegByte(reg);
+        case WIDTH_WORD:
+            return decodeRegWord(reg);
+    }
+    InvalidCodePath return X86_REG_AX; 
+}
+
+DIRECTION decodeDirection(u8 d) {
+    DIRECTION directions[] = { DIR_REG_IS_SRC, DIR_REG_IS_DST };
     Assert(d >= 0b0 && d <= 0b1);
+    return directions[d];
+}
 
-    switch(d) {
-        case D_REGISTER_IS_DEST:
-            return "destination";
-        case D_REGISTER_IS_SOURCE:
-            return "source";
-        default:
-            return "unk";
+WIDTH decodeWidth(u8 w) {
+    WIDTH widths[] = { WIDTH_BYTE, WIDTH_WORD };
+    Assert(w >= 0b0 && w <= 0b1);
+    return widths[w];
+}
+
+Mode decodeMode(u8 mod, u8 rm, WIDTH width) {
+    Assert(mod >= 0b00 && mod <= 0b11);
+    Assert(rm >= 0b000 && rm <= 0b111);
+
+    Mode result{};
+
+    // register to register
+    if(mod == 0b11) {
+        result.reg1 = decodeReg(rm, width);
+        result.operandFlags = turnOnFlags(result.operandFlags, MODE_FLAGS_REG);
+        return result;
     }
+
+    // direct access special case
+    if(rm == 0b110 && mod == 0b00) {
+        result.operandFlags = MODE_FLAGS_HAS_DISPLACE_16BIT;
+        return result;
+    }
+
+    // load effective memory address to register
+    X86_REG effAddrRegs0to4[4][2] = {
+        {X86_REG_BX, X86_REG_SI},
+        {X86_REG_BX, X86_REG_DI},
+        {X86_REG_BP, X86_REG_SI},
+        {X86_REG_BP, X86_REG_DI}
+    };
+    X86_REG effAddrRegs5to7[4] { X86_REG_SI, X86_REG_DI, X86_REG_BP, X86_REG_BX };
+
+    if(rm < 0b100) {
+        result.reg1 = effAddrRegs0to4[rm][0];
+        result.reg2 = effAddrRegs0to4[rm][1];
+        result.operandFlags = turnOnFlags(result.operandFlags, MODE_FLAGS_REG1_EFF_ADDR | MODE_FLAGS_REG2_EFF_ADDR);
+    } else {
+        result.reg1 = effAddrRegs5to7[rm - 4];
+        result.operandFlags = turnOnFlags(result.operandFlags, MODE_FLAGS_REG1_EFF_ADDR);
+    }
+    result.operandFlags = turnOnFlags(result.operandFlags, mod == 0b01 ? MODE_FLAGS_HAS_DISPLACE_8BIT : 0b0);
+    result.operandFlags = turnOnFlags(result.operandFlags, mod == 0b10 ? MODE_FLAGS_HAS_DISPLACE_16BIT : 0b0);
+    return result;
 }
 
 
-#define SINGLE_OP_FILE "listing_0037_single_register_mov"
-#define MANY_OP_FILE "listing_0038_many_register_mov"
+DecodedOp decodeOp(u8* bytes) {
+    u8 byte1 = *bytes++;
+    DecodedOp result{};
 
-#define INPUT_ASM_FOLDER "data\\asm"
-#define INPUT_FILE_NAME MANY_OP_FILE
-#define INPUT_FILE_LOCATION INPUT_ASM_FOLDER"\\"INPUT_FILE_NAME
-#define OUTPUT_FOLDER "output"
-#define OUTPUT_FILE_LOCATION OUTPUT_FOLDER"\\"INPUT_FILE_NAME".asm"
-#define LONGEST_OP "move ax, bx\n"
-#define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n\n"
+    if(byte1 & (1 << 7)) { // 1xxxxxxxx
+        if(byte1 & (1 << 6)) {  // 11xxxxxx
+            const u8 IMM_TO_REG_MEM_MASK = 0b11000110;
+            if((byte1 & IMM_TO_REG_MEM_MASK) == IMM_TO_REG_MEM_MASK) { // 1100011w
+
+                // imm to mem
+                result.op = X86_OP_MOV_IMM_TO_RM;
+                WIDTH opWidth = decodeWidth(byte1 & 0b1);
+                u8 byte2 = *bytes++; // mod 000 r/m
+                Mode mode = decodeMode(byte2 >> 6, byte2 & 0b111, opWidth);
+
+                if(mode.operandFlags & MODE_FLAGS_REG1_EFF_ADDR) { // mem = [reg + ?]
+                    result.firstOperand.reg1 = mode.reg1;
+                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_MEM_REG1);
+                }
+
+                if(mode.operandFlags & MODE_FLAGS_REG2_EFF_ADDR) { // mem = [reg1 + reg2 + ?]
+                    result.firstOperand.reg2 = mode.reg2;
+                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_MEM_REG2);
+                }
+
+                if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_8BIT) { // imm to [mem + 8-bit displacement]
+                    u8 displacement = *bytes++;
+                    result.firstOperand.displacement = displacement;
+                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_DISPLACEMENT_8BITS);
+                } else if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_16BIT) { // imm to [mem + 16-bit displacement]
+                    u16 displacement = *(u16*)bytes; bytes += 2;
+                    result.firstOperand.displacement = displacement;
+                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
+                }
+
+                switch(opWidth) {
+                    case WIDTH_BYTE: {
+                        u8 immediate = *bytes++;
+                        result.secondOperand.immediate = immediate;
+                        result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_8BITS);
+                        break;
+                    }
+                    case WIDTH_WORD: {
+                        u16 immediate = *(u16*)bytes; bytes += 2;
+                        result.secondOperand.immediate = immediate;
+                        result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
+                        break;
+                    }
+                }
+
+            }
+        } else { // 10xxxxxx
+            if(byte1 & (1 << 5)) { // 101xxxxx
+                if(byte1 & (1 << 4)) { // 1011wreg
+
+                    // imm to reg
+                    result.op = X86_OP_MOV_IMM_TO_REG;
+                    WIDTH opWidth = decodeWidth(((byte1 & 0b00001000) >> 3));
+                    result.firstOperand.reg = decodeReg(byte1 & 0b111, opWidth);
+                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_REG);
+                    if(opWidth == WIDTH_BYTE) {
+                        u8 imm = *bytes++;
+                        result.secondOperand.immediate = imm;
+                        result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_8BITS);
+                    } else if(opWidth == WIDTH_WORD) {
+                        u16 imm = *(u16*)bytes; bytes += 2;
+                        result.secondOperand.immediate = imm;
+                        result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_16BITS);
+                    }
+
+                } else { // 1010xxxx
+                    const u8 MEM_TO_ACC_MASK = 0b10100000;
+                    const u8 ACC_TO_MEM_MASK = 0b10100010;
+                    if((byte1 & MEM_TO_ACC_MASK) == MEM_TO_ACC_MASK) { // 1010000w
+
+                        // mem to acc
+                        result.op = X86_OP_MOV_MEM_TO_ACC;
+                        WIDTH opWidth = decodeWidth(byte1 & 0b1);
+                        // TODO: challenge
+
+                    } else if((byte1 & ACC_TO_MEM_MASK) == ACC_TO_MEM_MASK) { // 1010001w
+
+                        // acc to mem
+                        result.op = X86_OP_MOV_ACC_TO_MEM;
+                        WIDTH opWidth = decodeWidth(byte1 & 0b1);
+                        // TODO: challenge
+
+                    }
+                }
+            } else { // 100xxxxx
+
+                // reg/mem to/from reg
+                const u8 REG_MEM_TO_FROM_REG_MASK = 0b10001000;
+                if((byte1 & REG_MEM_TO_FROM_REG_MASK) == REG_MEM_TO_FROM_REG_MASK) { // 100010dw
+                    result.op = X86_OP_MOV_RM_TO_REG;
+                    DIRECTION dir = decodeDirection((byte1 & 0b00000010) >> 1);
+                    WIDTH opWidth = decodeWidth(byte1 & 0b1);
+                    u8 byte2 = *bytes++; // mod reg rm
+                    X86_REG reg = decodeReg((byte2 & 0b00111000) >> 3, opWidth);
+                    Mode mode = decodeMode(byte2 >> 6, byte2 & 0b111, opWidth);
+
+                    X86Operand* regOperand = (dir == DIR_REG_IS_DST) ? &result.firstOperand : &result.secondOperand;
+                    X86Operand* regMemOperand = (dir == DIR_REG_IS_DST) ? &result.secondOperand : &result.firstOperand;
+
+                    regOperand->reg = reg;
+                    regOperand->flags = turnOnFlags(regOperand->flags, OPERAND_FLAGS_REG);
+
+                    if(mode.operandFlags & MODE_FLAGS_REG) { // reg to reg
+                        regMemOperand->reg = mode.reg1;
+                        regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_REG);
+                    } else { // mem to/from reg
+
+                        if(mode.operandFlags & MODE_FLAGS_REG1_EFF_ADDR) {
+                            regMemOperand->reg1 = mode.reg1;
+                            regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_MEM_REG1);
+                        }
+
+                        if(mode.operandFlags & MODE_FLAGS_REG2_EFF_ADDR) {
+                            regMemOperand->reg2 = mode.reg2;
+                            regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_MEM_REG2);
+                        }
+
+                        if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_8BIT) {
+                            u8 displacement = *bytes++;
+                            regMemOperand->displacement = displacement;
+                            regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_DISPLACEMENT_8BITS);
+                        } else if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_16BIT) {
+                            u16 displacement = *(u16*)bytes; bytes += 2;
+                            regMemOperand->displacement = displacement;
+                            regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    result.nextByte = bytes;
+    return result;
+}
+
 void read8086Mnemonic() {
-    FILE *fileptr;
-    char *buffer;
+    u8* inputFileBuffer;
     long fileLen;
 
-    fileptr = fopen(INPUT_FILE_LOCATION, "rb");
-    fseek(fileptr, 0, SEEK_END);
-    fileLen = ftell(fileptr);
-    Assert((fileLen % 2) == 0);
-    rewind(fileptr);
+    FILE* inputFile = fopen(INPUT_FILE_LOCATION, "rb");
+    fseek(inputFile, 0, SEEK_END);
+    fileLen = ftell(inputFile);
+    rewind(inputFile);
 
-    buffer = (char *)malloc(fileLen * sizeof(char));
-    fread(buffer, fileLen, 1, fileptr);
-    fclose(fileptr);
+    inputFileBuffer = (u8 *)malloc(fileLen * sizeof(u8));
+    fread(inputFileBuffer, fileLen, 1, inputFile);
+    fclose(inputFile);
+    inputFile = nullptr;
 
     Assert(makeDirectory(OUTPUT_FOLDER));
 
-    fileptr = fopen(OUTPUT_FILE_LOCATION, "w");
-    Assert(fileptr);
-    fwrite(OUTPUT_FILE_HEADER, sizeof(OUTPUT_FILE_HEADER) - 1, 1, fileptr);
+    FILE* outputFile = fopen(OUTPUT_FILE_LOCATION, "w");
+    Assert(outputFile);
+    fwrite(OUTPUT_FILE_HEADER, sizeof(OUTPUT_FILE_HEADER) - 1, 1, outputFile);
     printf(OUTPUT_FILE_HEADER);
     
-    u32 opCount = fileLen / 2;
-    char* fileText = (char *)malloc(sizeof(LONGEST_OP));
-    for(u32 i = 0; i < opCount; i++) {
-        u32 firstByteIndex = i * 2;
-        u8 firstByte = buffer[firstByteIndex];
-        
-        u8 OP_MASK = 0b11111100;
-        u8 opCode = firstByte >> 2;
-        const char* op = opName(opCode);
-
-        u8 D_MASK = 0b00000010;
-        u8 d = (firstByte & D_MASK) >> 1;
-        const char* registerDestination = dRegister(d);
-        
-        u8 W_MASK = 0b00000001;
-        u8 w = (firstByte & W_MASK);
-        const char* registerWidth = wWidth(w);
-
-        u8 secondByte = buffer[firstByteIndex + 1];
-        
-        u8 MODE_MASK = 0b11000000;
-        u8 mode = secondByte >> 6;
-        // TODO: debug mode information
-
-        u8 REG_MASK = 0b00111000;
-        u8 reg = (secondByte & REG_MASK) >> 3;
-        const char* registerName = registerSlotName(reg, w);
-        
-        u8 R_M_MASK = 0b00000111;
-        u8 regMem = secondByte & R_M_MASK;
-        const char* regMemName = registerSlotName(regMem, w);
-
-        const char* srcName;
-        const char* destName;
-        if(d == D_REGISTER_IS_DEST) {
-            destName = registerName;
-            srcName = regMemName;
-        } else {
-            destName = regMemName;
-            srcName = registerName;
-        }
-
-        const char* FORMAT_STR = "%s %s, %s\n";
-        u32 opCharSize = sprintf(fileText, FORMAT_STR, op, destName, srcName);
-        fwrite(fileText, opCharSize, 1, fileptr);
-        printf(fileText);
+    u8* opText = (u8 *)malloc(sizeof(u8) * 64); // TODO: 64 chars should be enough, verify extreme edge cases
+    u8* lastByte = inputFileBuffer + fileLen;
+    u8* currentByte = inputFileBuffer;
+    while(currentByte < lastByte) {
+        DecodedOp op = decodeOp(currentByte); 
+        currentByte = op.nextByte;
+        // const char* FORMAT_STR = "%s %s, %s\n";
+        // u32 opCharSize = sprintf(opText, FORMAT_STR, "mov", destName, srcName);
+        // fwrite(opText, opCharSize, 1, outputFile);
+        // printf(opText);
+        printf("lol");
     }
-    free(fileText);
-    fclose(fileptr);
-    free(buffer);
+    free(opText);
+    fclose(outputFile);
+    free(inputFileBuffer);
 }

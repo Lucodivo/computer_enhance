@@ -1,10 +1,3 @@
-u32 data[] = {
-	1,
-	2,
-	3,
-	4
-};
-
 u32 SingleSSE(u32 Count, u32 *Input)
 {
 	__m128i Sum = _mm_setzero_si128();

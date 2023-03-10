@@ -52,5 +52,6 @@ typedef s32 b32;
 
 #include "platform_windows.h"
 
+#include "util.h"
 #include "add.cpp"
 #include "8086.cpp"
