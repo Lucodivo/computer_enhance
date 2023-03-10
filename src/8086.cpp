@@ -23,7 +23,7 @@ const char W_OPERANDS_ARE_WORDS = 0b1;
 #define OUTPUT_FOLDER "output"
 #define OUTPUT_FILE_LOCATION OUTPUT_FOLDER"\\"INPUT_FILE_NAME".asm"
 #define LONGEST_OP "move ax, bx\n"
-#define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n\n"
+#define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n"
 
 enum X86_OP {
     X86_OP_MOV_RM_TO_REG,
@@ -95,30 +95,15 @@ struct DecodedOp {
     u8* nextByte;
 };
 
-const char* registerSlot16Name(u8 regCode) {
+const char* registerName(X86_REG reg) {
     const char* regNames[] {
         "ax","cx", "dx", "bx",
-        "sp", "bp", "si", "di"
-    };
-    Assert(regCode >= 0b000 && regCode <= 0b111);
-    return regNames[regCode];
-}
+        "sp", "bp", "si", "di",
 
-const char* registerSlot8Name(u8 regCode) {
-    const char* reg8Names[] {
         "al","cl", "dl", "bl",
         "ah","ch", "dh", "bh"
     };
-    Assert(regCode >= 0b000 && regCode <= 0b111);
-    return reg8Names[regCode];
-}
-
-const char* registerSlotName(u8 regCode, u8 w) {
-    if(w == W_OPERANDS_ARE_WORDS) {
-        return registerSlot16Name(regCode);
-    } else {
-        return registerSlot8Name(regCode);
-    }
+    return regNames[(u32)reg];
 }
 
 X86_REG decodeRegByte(u8 regCode) {
@@ -358,26 +343,46 @@ void read8086Mnemonic() {
     fclose(inputFile);
     inputFile = nullptr;
 
-    Assert(makeDirectory(OUTPUT_FOLDER));
-
-    FILE* outputFile = fopen(OUTPUT_FILE_LOCATION, "w");
-    Assert(outputFile);
-    fwrite(OUTPUT_FILE_HEADER, sizeof(OUTPUT_FILE_HEADER) - 1, 1, outputFile);
     printf(OUTPUT_FILE_HEADER);
     
-    u8* opText = (u8 *)malloc(sizeof(u8) * 64); // TODO: 64 chars should be enough, verify extreme edge cases
     u8* lastByte = inputFileBuffer + fileLen;
     u8* currentByte = inputFileBuffer;
     while(currentByte < lastByte) {
         DecodedOp op = decodeOp(currentByte); 
         currentByte = op.nextByte;
-        // const char* FORMAT_STR = "%s %s, %s\n";
-        // u32 opCharSize = sprintf(opText, FORMAT_STR, "mov", destName, srcName);
-        // fwrite(opText, opCharSize, 1, outputFile);
-        // printf(opText);
-        printf("lol");
+
+        printf("\n");
+        printf("mov ");
+
+        auto writeAndPrintOperand = [](X86Operand operand) {
+            if(operand.flags & OPERAND_FLAGS_REG) { // dest is reg
+                printf("%s", registerName(operand.reg));
+            } else if(operand.flags & OPERAND_FLAGS_MEM_REG1) { // dest is mem
+                printf("[%s", registerName(operand.reg1));
+                if(operand.flags & OPERAND_FLAGS_MEM_REG2) {
+                    printf(" + %s", registerName(operand.reg2));
+                }
+                if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_8BITS) {
+                    s8 displacement = *(s8*)&operand.displacement;
+                    printf(" + %d", displacement);
+                } else if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_16BITS) {
+                    s16 displacement = *(s16*)&operand.displacement;
+                    printf(" + %d", displacement);
+                }
+                printf("]");
+            } else if(operand.flags & OPERAND_FLAGS_IMM_8BITS) {
+                s8 immediate = *(s8*)&operand.immediate;
+                printf("%d", immediate);
+            } else if(operand.flags & OPERAND_FLAGS_IMM_16BITS) {
+                s16 immediate = *(s16*)&operand.immediate;
+                printf("%d", immediate);
+            }
+        };
+
+        writeAndPrintOperand(op.firstOperand);
+        printf(", ");
+        // TODO: write comma space to file
+        writeAndPrintOperand(op.secondOperand);
     }
-    free(opText);
-    fclose(outputFile);
     free(inputFileBuffer);
 }
