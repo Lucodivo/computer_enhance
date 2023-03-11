@@ -1,8 +1,14 @@
 #include "main.h"
 
 #pragma optimize("", off)
-int main(int ArgCount, char** Args)
+int main(int argCount, char** args)
 {
-	// printf("%d", SingleSSE(4, data));
-	read8086Mnemonic();
+	if(argCount != 2) {
+		printf("You have not provided an assembly file. Terminating...");
+		return -1;
+	}
+
+	char* programSystemPath = args[0];
+	char* asmFilePath = args[1];
+	read8086Mnemonic(asmFilePath);
 }

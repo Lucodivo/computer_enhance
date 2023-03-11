@@ -12,17 +12,6 @@ const char D_REGISTER_IS_DEST = 0b1;
 const char W_OPERANDS_ARE_BYTES = 0b0;
 const char W_OPERANDS_ARE_WORDS = 0b1;
 
-#define SINGLE_OP_FILE "listing_0037_single_register_mov"
-#define MANY_OP_FILE "listing_0038_many_register_mov"
-#define MORE_OP_FILE "listing_0039_more_movs"
-#define CHALLENGE_OP_FILE "listing_0040_challenge_movs"
-
-#define INPUT_ASM_FOLDER "data\\asm"
-#define INPUT_FILE_NAME MORE_OP_FILE
-#define INPUT_FILE_LOCATION INPUT_ASM_FOLDER"\\"INPUT_FILE_NAME
-#define OUTPUT_FOLDER "output"
-#define OUTPUT_FILE_LOCATION OUTPUT_FOLDER"\\"INPUT_FILE_NAME".asm"
-#define LONGEST_OP "move ax, bx\n"
 #define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n"
 
 enum X86_OP {
@@ -192,148 +181,154 @@ DecodedOp decodeOp(u8* bytes) {
     u8 byte1 = *bytes++;
     DecodedOp result{};
 
-    if(byte1 & (1 << 7)) { // 1xxxxxxxx
-        if(byte1 & (1 << 6)) {  // 11xxxxxx
-            const u8 IMM_TO_REG_MEM_MASK = 0b11000110;
-            if((byte1 & IMM_TO_REG_MEM_MASK) == IMM_TO_REG_MEM_MASK) { // 1100011w
+    // 4 bit codes
+    u8 OP_CODE_IMMEDIATE_TO_REG = 0b1011;
+    // 6 bit codes
+    u8 OP_CODE_RM_TO_FROM_REG = 0b100010;
+    u8 OP_CODE_ACC_TO_FROM_MEM = 0b101000;
+    // 7 bit codes
+    u8 OP_CODE_IMM_TO_RM = 0b1100011;
 
-                // imm to mem
-                result.op = X86_OP_MOV_IMM_TO_RM;
-                WIDTH opWidth = decodeWidth(byte1 & 0b1);
-                u8 byte2 = *bytes++; // mod 000 r/m
-                Mode mode = decodeMode(byte2 >> 6, byte2 & 0b111, opWidth);
 
-                if(mode.operandFlags & MODE_FLAGS_REG1_EFF_ADDR) { // mem = [reg + ?]
-                    result.firstOperand.reg1 = mode.reg1;
-                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_MEM_REG1);
-                }
+    u8 fourBitOpCode = byte1 >> 4;
+    u8 sixBitOpCode = byte1 >> 2;
+    u8 sevenBitOpCode = byte1 >> 1;
+    if(fourBitOpCode == OP_CODE_IMMEDIATE_TO_REG) { // imm to reg
 
-                if(mode.operandFlags & MODE_FLAGS_REG2_EFF_ADDR) { // mem = [reg1 + reg2 + ?]
-                    result.firstOperand.reg2 = mode.reg2;
-                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_MEM_REG2);
-                }
+        result.op = X86_OP_MOV_IMM_TO_REG;
+        WIDTH opWidth = decodeWidth(((byte1 & 0b00001000) >> 3));
+        result.firstOperand.reg = decodeReg(byte1 & 0b111, opWidth);
+        result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_REG);
 
-                if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_8BIT) { // imm to [mem + 8-bit displacement]
-                    u8 displacement = *bytes++;
-                    result.firstOperand.displacement = displacement;
-                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_DISPLACEMENT_8BITS);
-                } else if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_16BIT) { // imm to [mem + 16-bit displacement]
-                    u16 displacement = *(u16*)bytes; bytes += 2;
-                    result.firstOperand.displacement = displacement;
-                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
-                }
-
-                switch(opWidth) {
-                    case WIDTH_BYTE: {
-                        u8 immediate = *bytes++;
-                        result.secondOperand.immediate = immediate;
-                        result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_8BITS);
-                        break;
-                    }
-                    case WIDTH_WORD: {
-                        u16 immediate = *(u16*)bytes; bytes += 2;
-                        result.secondOperand.immediate = immediate;
-                        result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
-                        break;
-                    }
-                }
-
+        switch(opWidth) {
+            case WIDTH_BYTE: {
+                u8 imm = *bytes++;
+                result.secondOperand.immediate = imm;
+                result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_8BITS);
+                break;
             }
-        } else { // 10xxxxxx
-            if(byte1 & (1 << 5)) { // 101xxxxx
-                if(byte1 & (1 << 4)) { // 1011wreg
-
-                    // imm to reg
-                    result.op = X86_OP_MOV_IMM_TO_REG;
-                    WIDTH opWidth = decodeWidth(((byte1 & 0b00001000) >> 3));
-                    result.firstOperand.reg = decodeReg(byte1 & 0b111, opWidth);
-                    result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_REG);
-                    if(opWidth == WIDTH_BYTE) {
-                        u8 imm = *bytes++;
-                        result.secondOperand.immediate = imm;
-                        result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_8BITS);
-                    } else if(opWidth == WIDTH_WORD) {
-                        u16 imm = *(u16*)bytes; bytes += 2;
-                        result.secondOperand.immediate = imm;
-                        result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_16BITS);
-                    }
-
-                } else { // 1010xxxx
-                    const u8 MEM_TO_ACC_MASK = 0b10100000;
-                    const u8 ACC_TO_MEM_MASK = 0b10100010;
-                    if((byte1 & MEM_TO_ACC_MASK) == MEM_TO_ACC_MASK) { // 1010000w
-
-                        // mem to acc
-                        result.op = X86_OP_MOV_MEM_TO_ACC;
-                        WIDTH opWidth = decodeWidth(byte1 & 0b1);
-                        // TODO: challenge
-
-                    } else if((byte1 & ACC_TO_MEM_MASK) == ACC_TO_MEM_MASK) { // 1010001w
-
-                        // acc to mem
-                        result.op = X86_OP_MOV_ACC_TO_MEM;
-                        WIDTH opWidth = decodeWidth(byte1 & 0b1);
-                        // TODO: challenge
-
-                    }
-                }
-            } else { // 100xxxxx
-
-                // reg/mem to/from reg
-                const u8 REG_MEM_TO_FROM_REG_MASK = 0b10001000;
-                if((byte1 & REG_MEM_TO_FROM_REG_MASK) == REG_MEM_TO_FROM_REG_MASK) { // 100010dw
-                    result.op = X86_OP_MOV_RM_TO_REG;
-                    DIRECTION dir = decodeDirection((byte1 & 0b00000010) >> 1);
-                    WIDTH opWidth = decodeWidth(byte1 & 0b1);
-                    u8 byte2 = *bytes++; // mod reg rm
-                    X86_REG reg = decodeReg((byte2 & 0b00111000) >> 3, opWidth);
-                    Mode mode = decodeMode(byte2 >> 6, byte2 & 0b111, opWidth);
-
-                    X86Operand* regOperand = (dir == DIR_REG_IS_DST) ? &result.firstOperand : &result.secondOperand;
-                    X86Operand* regMemOperand = (dir == DIR_REG_IS_DST) ? &result.secondOperand : &result.firstOperand;
-
-                    regOperand->reg = reg;
-                    regOperand->flags = turnOnFlags(regOperand->flags, OPERAND_FLAGS_REG);
-
-                    if(mode.operandFlags & MODE_FLAGS_REG) { // reg to reg
-                        regMemOperand->reg = mode.reg1;
-                        regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_REG);
-                    } else { // mem to/from reg
-
-                        if(mode.operandFlags & MODE_FLAGS_REG1_EFF_ADDR) {
-                            regMemOperand->reg1 = mode.reg1;
-                            regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_MEM_REG1);
-                        }
-
-                        if(mode.operandFlags & MODE_FLAGS_REG2_EFF_ADDR) {
-                            regMemOperand->reg2 = mode.reg2;
-                            regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_MEM_REG2);
-                        }
-
-                        if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_8BIT) {
-                            u8 displacement = *bytes++;
-                            regMemOperand->displacement = displacement;
-                            regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_DISPLACEMENT_8BITS);
-                        } else if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_16BIT) {
-                            u16 displacement = *(u16*)bytes; bytes += 2;
-                            regMemOperand->displacement = displacement;
-                            regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
-                        }
-                    }
-                }
+            case WIDTH_WORD: {
+                u16 imm = *(u16*)bytes; bytes += 2;
+                result.secondOperand.immediate = imm;
+                result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_16BITS);
+                break;
             }
         }
+
+    } else if(sixBitOpCode == OP_CODE_RM_TO_FROM_REG) { // r/m to/from reg, 100010dw
+
+        result.op = X86_OP_MOV_RM_TO_REG;
+        DIRECTION dir = decodeDirection((byte1 & 0b00000010) >> 1);
+        WIDTH opWidth = decodeWidth(byte1 & 0b1);
+        u8 byte2 = *bytes++; // mod reg rm
+        X86_REG reg = decodeReg((byte2 & 0b00111000) >> 3, opWidth);
+        Mode mode = decodeMode(byte2 >> 6, byte2 & 0b111, opWidth);
+
+        X86Operand* regOperand = (dir == DIR_REG_IS_DST) ? &result.firstOperand : &result.secondOperand;
+        X86Operand* regMemOperand = (dir == DIR_REG_IS_DST) ? &result.secondOperand : &result.firstOperand;
+
+        regOperand->reg = reg;
+        regOperand->flags = turnOnFlags(regOperand->flags, OPERAND_FLAGS_REG);
+
+        if(mode.operandFlags & MODE_FLAGS_REG) { // reg to reg
+            regMemOperand->reg = mode.reg1;
+            regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_REG);
+        } else { // mem to/from reg
+
+            if(mode.operandFlags & MODE_FLAGS_REG1_EFF_ADDR) {
+                regMemOperand->reg1 = mode.reg1;
+                regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_MEM_REG1);
+            }
+
+            if(mode.operandFlags & MODE_FLAGS_REG2_EFF_ADDR) {
+                regMemOperand->reg2 = mode.reg2;
+                regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_MEM_REG2);
+            }
+
+            if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_8BIT) {
+                u8 displacement = *bytes++;
+                regMemOperand->displacement = displacement;
+                regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_DISPLACEMENT_8BITS);
+            } else if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_16BIT) {
+                u16 displacement = *(u16*)bytes; bytes += 2;
+                regMemOperand->displacement = displacement;
+                regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
+            }
+        }
+
+    } else if(sixBitOpCode == OP_CODE_ACC_TO_FROM_MEM) { // acc to/from mem, 101000dw
+
+        result.op = byte1 & (1 << 1) ? X86_OP_MOV_ACC_TO_MEM : X86_OP_MOV_MEM_TO_ACC;
+        WIDTH opWidth = decodeWidth(byte1 & 0b1);
+        X86Operand* memOperand = result.op == X86_OP_MOV_ACC_TO_MEM ? &result.firstOperand : &result.secondOperand;
+        X86Operand* accOperand = result.op == X86_OP_MOV_ACC_TO_MEM ? &result.secondOperand : &result.firstOperand;
+        memOperand->displacement = *(u16*)bytes; bytes += 2;
+        memOperand->flags = turnOnFlags(memOperand->flags, OPERAND_FLAGS_DISPLACEMENT_16BITS); 
+        accOperand->flags = turnOnFlags(accOperand->flags, OPERAND_FLAGS_REG);
+        switch(opWidth) {
+            case WIDTH_BYTE: {
+                accOperand->reg = X86_REG_AL;
+                break;
+            }
+            case WIDTH_WORD: {
+                accOperand->reg = X86_REG_AX;
+                break;
+            }
+        }
+
+    } else if(sevenBitOpCode == OP_CODE_IMM_TO_RM) { // imm to r/m
+
+        result.op = X86_OP_MOV_IMM_TO_RM;
+        WIDTH opWidth = decodeWidth(byte1 & 0b1);
+        u8 byte2 = *bytes++; // mod 000 r/m
+        Mode mode = decodeMode(byte2 >> 6, byte2 & 0b111, opWidth);
+
+        if(mode.operandFlags & MODE_FLAGS_REG1_EFF_ADDR) { // mem = [reg + ?]
+            result.firstOperand.reg1 = mode.reg1;
+            result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_MEM_REG1);
+        }
+
+        if(mode.operandFlags & MODE_FLAGS_REG2_EFF_ADDR) { // mem = [reg1 + reg2 + ?]
+            result.firstOperand.reg2 = mode.reg2;
+            result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_MEM_REG2);
+        }
+
+        if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_8BIT) { // imm to [mem + 8-bit displacement]
+            u8 displacement = *bytes++;
+            result.firstOperand.displacement = displacement;
+            result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_DISPLACEMENT_8BITS);
+        } else if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_16BIT) { // imm to [mem + 16-bit displacement]
+            u16 displacement = *(u16*)bytes; bytes += 2;
+            result.firstOperand.displacement = displacement;
+            result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
+        }
+
+        switch(opWidth) {
+            case WIDTH_BYTE: {
+                u8 immediate = *bytes++;
+                result.secondOperand.immediate = immediate;
+                result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_8BITS);
+                break;
+            }
+            case WIDTH_WORD: {
+                u16 immediate = *(u16*)bytes; bytes += 2;
+                result.secondOperand.immediate = immediate;
+                result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
+                break;
+            }
+        }
+        
     }
 
     result.nextByte = bytes;
     return result;
 }
 
-void read8086Mnemonic() {
+void read8086Mnemonic(const char* asmFilePath) {
     u8* inputFileBuffer;
     long fileLen;
 
-    FILE* inputFile = fopen(INPUT_FILE_LOCATION, "rb");
+    FILE* inputFile = fopen(asmFilePath, "rb");
     fseek(inputFile, 0, SEEK_END);
     fileLen = ftell(inputFile);
     rewind(inputFile);
@@ -364,10 +359,10 @@ void read8086Mnemonic() {
                 }
                 if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_8BITS) {
                     s8 displacement = *(s8*)&operand.displacement;
-                    printf(" + %d", displacement);
+                    displacement >= 0 ? printf(" + %d", displacement) : printf(" - %d", displacement * -1);
                 } else if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_16BITS) {
                     s16 displacement = *(s16*)&operand.displacement;
-                    printf(" + %d", displacement);
+                    displacement >= 0 ? printf(" + %d", displacement) : printf(" - %d", displacement * -1);
                 }
                 printf("]");
             } else if(operand.flags & OPERAND_FLAGS_IMM_8BITS) {
