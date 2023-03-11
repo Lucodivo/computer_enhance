@@ -313,7 +313,7 @@ DecodedOp decodeOp(u8* bytes) {
             case WIDTH_WORD: {
                 u16 immediate = *(u16*)bytes; bytes += 2;
                 result.secondOperand.immediate = immediate;
-                result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
+                result.secondOperand.flags = turnOnFlags(result.secondOperand.flags, OPERAND_FLAGS_IMM_16BITS);
                 break;
             }
         }
@@ -349,35 +349,48 @@ void read8086Mnemonic(const char* asmFilePath) {
         printf("\n");
         printf("mov ");
 
-        auto writeAndPrintOperand = [](X86Operand operand) {
-            if(operand.flags & OPERAND_FLAGS_REG) { // dest is reg
+        auto writeAndPrintOperand = [](X86Operand operand, u8 prevOperandFlags) {
+            if(operand.flags & OPERAND_FLAGS_REG) { // reg
                 printf("%s", registerName(operand.reg));
-            } else if(operand.flags & OPERAND_FLAGS_MEM_REG1) { // dest is mem
-                printf("[%s", registerName(operand.reg1));
-                if(operand.flags & OPERAND_FLAGS_MEM_REG2) {
-                    printf(" + %s", registerName(operand.reg2));
-                }
-                if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_8BITS) {
-                    s8 displacement = *(s8*)&operand.displacement;
-                    displacement >= 0 ? printf(" + %d", displacement) : printf(" - %d", displacement * -1);
-                } else if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_16BITS) {
-                    s16 displacement = *(s16*)&operand.displacement;
-                    displacement >= 0 ? printf(" + %d", displacement) : printf(" - %d", displacement * -1);
+            } else if(checkAnyFlags(operand.flags, OPERAND_FLAGS_MEM_REG1 | OPERAND_FLAGS_DISPLACEMENT_8BITS | OPERAND_FLAGS_DISPLACEMENT_16BITS)) { // mem
+                printf("[");
+                if(operand.flags & OPERAND_FLAGS_MEM_REG1) { // effective address
+                    printf("%s", registerName(operand.reg1));
+                    if(operand.flags & OPERAND_FLAGS_MEM_REG2) {
+                        printf(" + %s", registerName(operand.reg2));
+                    }
+                    if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_8BITS) {
+                        s8 displacement = *(s8*)&operand.displacement;
+                        displacement >= 0 ? printf(" + %d", displacement) : printf(" - %d", displacement * -1);
+                    } else if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_16BITS) {
+                        s16 displacement = *(s16*)&operand.displacement;
+                        displacement >= 0 ? printf(" + %d", displacement) : printf(" - %d", displacement * -1);
+                    }
+                } else { // direct address
+                    if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_8BITS) {
+                        s8 displacement = *(s8*)&operand.displacement;
+                        printf("%d", displacement);
+                    } else if(operand.flags & OPERAND_FLAGS_DISPLACEMENT_16BITS) {
+                        s16 displacement = *(s16*)&operand.displacement;
+                        printf("%d", displacement);
+                    }
                 }
                 printf("]");
-            } else if(operand.flags & OPERAND_FLAGS_IMM_8BITS) {
-                s8 immediate = *(s8*)&operand.immediate;
-                printf("%d", immediate);
-            } else if(operand.flags & OPERAND_FLAGS_IMM_16BITS) {
-                s16 immediate = *(s16*)&operand.immediate;
-                printf("%d", immediate);
+            } else if(checkAnyFlags(operand.flags, OPERAND_FLAGS_IMM_8BITS | OPERAND_FLAGS_IMM_16BITS)) { // imm
+                bool firstOperandWasMem = checkAnyFlags(prevOperandFlags, OPERAND_FLAGS_MEM_REG1 | OPERAND_FLAGS_DISPLACEMENT_8BITS | OPERAND_FLAGS_DISPLACEMENT_16BITS);
+                if(operand.flags & OPERAND_FLAGS_IMM_8BITS) {
+                    s8 immediate = *(s8*)&operand.immediate;
+                    printf(firstOperandWasMem ? "byte %d" : "%d", immediate);
+                } else if(operand.flags & OPERAND_FLAGS_IMM_16BITS) {
+                    s16 immediate = *(s16*)&operand.immediate;
+                    printf(firstOperandWasMem ? "word %d" : "%d", immediate);
+                }
             }
         };
 
-        writeAndPrintOperand(op.firstOperand);
+        writeAndPrintOperand(op.firstOperand, 0);
         printf(", ");
-        // TODO: write comma space to file
-        writeAndPrintOperand(op.secondOperand);
+        writeAndPrintOperand(op.secondOperand, op.firstOperand.flags);
     }
     free(inputFileBuffer);
 }

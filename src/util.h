@@ -10,3 +10,7 @@ u8 turnOffFlags(const u8 currentFlags, const u8 desiredFlags) {
 bool checkAllFlags(const u8 currentFlags, const u8 desiredFlags) {
     return (currentFlags & desiredFlags) == desiredFlags;
 }
+
+bool checkAnyFlags(const u8 currentFlags, const u8 desiredFlags) {
+    return (currentFlags & desiredFlags) > 0;
+}
