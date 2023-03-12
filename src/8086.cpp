@@ -1,25 +1,55 @@
-// 8086 16-bit instruction for mov is something like this
-// [100010|D|W][MOD|REG|R/M]
-// D - 1 bit - If 0 the register field is not destination, if 1 it is
-// W - 1 bit - Is this 16-bits or not?nasm - h (stands for "wide")
-// MOD - 2 bits - Mov can operate on registers and memory. Are the operands memory or registers?
-// REG - 3 bits - Encodes a register
-// R/M - 3 bits - Encodes a register or potentially memory
-
-const char INSTR_OP_MOV = 0b100010;
-const char D_REGISTER_IS_SOURCE = 0b0;
-const char D_REGISTER_IS_DEST = 0b1;
-const char W_OPERANDS_ARE_BYTES = 0b0;
-const char W_OPERANDS_ARE_WORDS = 0b1;
-
 #define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n"
 
 enum X86_OP {
-    X86_OP_MOV_RM_TO_REG,
+    x86_OP_MOV__START,
+    X86_OP_MOV_RM_TO_FROM_REG,
     X86_OP_MOV_IMM_TO_RM,
     X86_OP_MOV_IMM_TO_REG,
     X86_OP_MOV_MEM_TO_ACC,
-    X86_OP_MOV_ACC_TO_MEM
+    X86_OP_MOV_ACC_TO_MEM,
+    X86_OP_MOV__END,
+
+    X86_OP_ADD__START,
+    X86_OP_ADD_RM_TO_FROM_REG,
+    X86_OP_ADD_IMM_TO_RM,
+    x86_OP_ADD_IMM_TO_ACC,
+    X86_OP_ADD__END,
+
+    X86_OP_SUB__START,
+    X86_OP_SUB_RM_TO_FROM_REG,
+    X86_OP_SUB_IMM_FROM_RM,
+    X86_OP_SUB_IMM_FROM_ACC,
+    X86_OP_SUB__END,
+
+    X86_OP_CMP__START,
+    X86_OP_CMP_RM_AND_REG,
+    X86_OP_CMP_IMM_AND_RM,
+    X86_OP_CMP_IMM_AND_ACC,
+    X86_OP_CMP__END,
+
+    X86_OP_JMP__START,
+    X86_OP_JE_JZ,
+    X86_OP_JL_JNGE,
+    X86_OP_JLE_JNG,
+    X86_OP_JB_JNAE,
+    X86_OP_JBE_JNA,
+    X86_OP_JP_JPE,
+    X86_OP_JO,
+    X86_OP_JS,
+    X86_OP_JNE_JNZ,
+    X86_OP_JNL_JGE,
+    X86_OP_JNLE_JG,
+    X86_OP_JNB_JAE,
+    X86_OP_JNBE_JA,
+    X86_OP_JNP_JPO,
+    X86_OP_JNO,
+    X86_OP_JNS,
+    X86_OP_LOOP,
+    X86_OP_LOOPZ_LOOPE,
+    X86_OP_LOOPNZ_LOOPNE,
+    X86_OP_JCXZ,
+    X86_OP_JMP__END,
+
 };
 
 enum X86_REG {
@@ -51,7 +81,7 @@ enum MODE_FLAGS {
 struct Mode {
     X86_REG reg1;
     X86_REG reg2;
-    u8 operandFlags;
+    u8 flags;
 };
 
 enum OPERAND_FLAGS {
@@ -61,7 +91,8 @@ enum OPERAND_FLAGS {
     OPERAND_FLAGS_DISPLACEMENT_8BITS = 1 << 3,
     OPERAND_FLAGS_DISPLACEMENT_16BITS = 1 << 4,
     OPERAND_FLAGS_IMM_8BITS = 1 << 5,
-    OPERAND_FLAGS_IMM_16BITS = 1 << 6
+    OPERAND_FLAGS_IMM_16BITS = 1 << 6,
+    OPERAND_FLAGS_NO_OPERAND = 1 << 7,
 };
 
 struct X86Operand {
@@ -144,13 +175,13 @@ Mode decodeMode(u8 mod, u8 rm, WIDTH width) {
     // register to register
     if(mod == 0b11) {
         result.reg1 = decodeReg(rm, width);
-        result.operandFlags = turnOnFlags(result.operandFlags, MODE_FLAGS_REG);
+        result.flags = turnOnFlags(result.flags, MODE_FLAGS_REG);
         return result;
     }
 
     // direct access special case
     if(rm == 0b110 && mod == 0b00) {
-        result.operandFlags = MODE_FLAGS_HAS_DISPLACE_16BIT;
+        result.flags = MODE_FLAGS_HAS_DISPLACE_16BIT;
         return result;
     }
 
@@ -166,14 +197,23 @@ Mode decodeMode(u8 mod, u8 rm, WIDTH width) {
     if(rm < 0b100) {
         result.reg1 = effAddrRegs0to4[rm][0];
         result.reg2 = effAddrRegs0to4[rm][1];
-        result.operandFlags = turnOnFlags(result.operandFlags, MODE_FLAGS_REG1_EFF_ADDR | MODE_FLAGS_REG2_EFF_ADDR);
+        result.flags = turnOnFlags(result.flags, MODE_FLAGS_REG1_EFF_ADDR | MODE_FLAGS_REG2_EFF_ADDR);
     } else {
         result.reg1 = effAddrRegs5to7[rm - 4];
-        result.operandFlags = turnOnFlags(result.operandFlags, MODE_FLAGS_REG1_EFF_ADDR);
+        result.flags = turnOnFlags(result.flags, MODE_FLAGS_REG1_EFF_ADDR);
     }
-    result.operandFlags = turnOnFlags(result.operandFlags, mod == 0b01 ? MODE_FLAGS_HAS_DISPLACE_8BIT : 0b0);
-    result.operandFlags = turnOnFlags(result.operandFlags, mod == 0b10 ? MODE_FLAGS_HAS_DISPLACE_16BIT : 0b0);
+    result.flags = turnOnFlags(result.flags, mod == 0b01 ? MODE_FLAGS_HAS_DISPLACE_8BIT : 0b0);
+    result.flags = turnOnFlags(result.flags, mod == 0b10 ? MODE_FLAGS_HAS_DISPLACE_16BIT : 0b0);
     return result;
+}
+
+
+
+void decodeModRegRM(u8 byte, WIDTH width) { // [8bits] = [2 3 3] = [mod reg r/m]
+    u8 modCode = byte >> 6;
+    u8 regCode = (byte & 0b00111000) >> 3;
+    u8 rmCode = byte & 0b111;
+    Mode mode = decodeMode(modCode, rmCode, width);
 }
 
 
@@ -182,23 +222,62 @@ DecodedOp decodeOp(u8* bytes) {
     DecodedOp result{};
 
     // 4 bit codes
-    u8 OP_CODE_IMMEDIATE_TO_REG = 0b1011;
+    u8 OP_CODE_MOV_IMM_TO_REG = 0b1011;
     // 6 bit codes
-    u8 OP_CODE_RM_TO_FROM_REG = 0b100010;
-    u8 OP_CODE_ACC_TO_FROM_MEM = 0b101000;
+    u8 OP_CODE_MOV_RM_TO_FROM_REG = 0b100010;
+    u8 OP_CODE_MOV_ACC_TO_FROM_MEM = 0b101000;
+    u8 OP_CODE_ADD_RM_TO_FROM_REG = 0b000000;
+    u8 OP_CODE_ADD_SUB_IMM_TO_RM = 0b100000;
+    u8 OP_CODE_SUB_RM_TO_FROM_REG = 0b001010;
+    u8 OP_CODE_CMP_RM_AND_REG = 0b001110;
+    u8 OP_CODE_CMP_IMM_AND_RM = 0b100000;
     // 7 bit codes
-    u8 OP_CODE_IMM_TO_RM = 0b1100011;
+    u8 OP_CODE_MOV_IMM_TO_RM = 0b1100011;
+    u8 OP_CODE_ADD_IMM_TO_ACC = 0b0000010;
+    u8 OP_CODE_SUB_IMM_FROM_ACC = 0b0010110;
+    u8 OP_CODE_CMP_IMM_AND_ACC = 0b0011110;
+    // 8 bit codes
+    u8 OP_CODE_JO = 0b01110000;
+    u8 OP_CODE_JNO = 0b01110001;
+    u8 OP_CODE_JB_JNAE = 0b01110010;
+    u8 OP_CODE_JNB_JAE = 0b01110011;
+    u8 OP_CODE_JE_JZ = 0b01110100;
+    u8 OP_CODE_JNE_JNZ = 0b01110101;
+    u8 OP_CODE_JBE_JNA = 0b01110110;
+    u8 OP_CODE_JNBE_JA = 0b01110111;
+    u8 OP_CODE_JS = 0b01111000;
+    u8 OP_CODE_JNS = 0b01111001;
+    u8 OP_CODE_JP_JPE = 0b01111010;
+    u8 OP_CODE_JNP_JPO = 0b01111011;
+    u8 OP_CODE_JL_JNGE = 0b01111100;
+    u8 OP_CODE_JNL_JGE = 0b01111101;
+    u8 OP_CODE_JLE_JNG = 0b01111110;
+    u8 OP_CODE_JNLE_JG = 0b01111111;
+
+    u8 OP_CODE_LOOPNZ_LOOPNE = 0b11100000;
+    u8 OP_CODE_LOOPZ_LOOPE = 0b11100001;
+    u8 OP_CODE_LOOP = 0b11100010;
+    u8 OP_CODE_JCXZ = 0b11100011;
 
 
     u8 fourBitOpCode = byte1 >> 4;
     u8 sixBitOpCode = byte1 >> 2;
     u8 sevenBitOpCode = byte1 >> 1;
-    if(fourBitOpCode == OP_CODE_IMMEDIATE_TO_REG) { // imm to reg
+    if(fourBitOpCode == OP_CODE_MOV_IMM_TO_REG 
+            || sevenBitOpCode == OP_CODE_ADD_IMM_TO_ACC) { // [OP][DATA][DATA, if word]
 
-        result.op = X86_OP_MOV_IMM_TO_REG;
-        WIDTH opWidth = decodeWidth(((byte1 & 0b00001000) >> 3));
-        result.firstOperand.reg = decodeReg(byte1 & 0b111, opWidth);
-        result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_REG);
+        WIDTH opWidth{};
+        if(fourBitOpCode == OP_CODE_MOV_IMM_TO_REG) { // mov reg, imm
+            result.op = X86_OP_MOV_IMM_TO_REG;
+            opWidth = decodeWidth(((byte1 & 0b00001000) >> 3));
+            result.firstOperand.reg = decodeReg(byte1 & 0b111, opWidth);
+            result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_REG);
+        } else if(fourBitOpCode == OP_CODE_ADD_IMM_TO_ACC) { // mov ax
+            result.op = x86_OP_ADD_IMM_TO_ACC;
+            opWidth = decodeWidth(byte1 & 0b1);
+            result.firstOperand.reg = opWidth == WIDTH_BYTE ? X86_REG_AX : X86_REG_AL;
+            result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_REG);
+        }
 
         switch(opWidth) {
             case WIDTH_BYTE: {
@@ -215,9 +294,9 @@ DecodedOp decodeOp(u8* bytes) {
             }
         }
 
-    } else if(sixBitOpCode == OP_CODE_RM_TO_FROM_REG) { // r/m to/from reg, 100010dw
+    } else if(sixBitOpCode == OP_CODE_MOV_RM_TO_FROM_REG) { // [OP][MOD|REG|RM][DISP-LO][DISP-HI]
 
-        result.op = X86_OP_MOV_RM_TO_REG;
+        result.op = X86_OP_MOV_RM_TO_FROM_REG;
         DIRECTION dir = decodeDirection((byte1 & 0b00000010) >> 1);
         WIDTH opWidth = decodeWidth(byte1 & 0b1);
         u8 byte2 = *bytes++; // mod reg rm
@@ -230,33 +309,33 @@ DecodedOp decodeOp(u8* bytes) {
         regOperand->reg = reg;
         regOperand->flags = turnOnFlags(regOperand->flags, OPERAND_FLAGS_REG);
 
-        if(mode.operandFlags & MODE_FLAGS_REG) { // reg to reg
+        if(mode.flags & MODE_FLAGS_REG) { // reg to reg
             regMemOperand->reg = mode.reg1;
             regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_REG);
         } else { // mem to/from reg
 
-            if(mode.operandFlags & MODE_FLAGS_REG1_EFF_ADDR) {
+            if(mode.flags & MODE_FLAGS_REG1_EFF_ADDR) {
                 regMemOperand->reg1 = mode.reg1;
                 regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_MEM_REG1);
             }
 
-            if(mode.operandFlags & MODE_FLAGS_REG2_EFF_ADDR) {
+            if(mode.flags & MODE_FLAGS_REG2_EFF_ADDR) {
                 regMemOperand->reg2 = mode.reg2;
                 regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_MEM_REG2);
             }
 
-            if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_8BIT) {
+            if(mode.flags & MODE_FLAGS_HAS_DISPLACE_8BIT) {
                 u8 displacement = *bytes++;
                 regMemOperand->displacement = displacement;
                 regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_DISPLACEMENT_8BITS);
-            } else if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_16BIT) {
+            } else if(mode.flags & MODE_FLAGS_HAS_DISPLACE_16BIT) {
                 u16 displacement = *(u16*)bytes; bytes += 2;
                 regMemOperand->displacement = displacement;
                 regMemOperand->flags = turnOnFlags(regMemOperand->flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
             }
         }
 
-    } else if(sixBitOpCode == OP_CODE_ACC_TO_FROM_MEM) { // acc to/from mem, 101000dw
+    } else if(sixBitOpCode == OP_CODE_MOV_ACC_TO_FROM_MEM) { // [OP][ADDR-LO][ADDR-HI]
 
         result.op = byte1 & (1 << 1) ? X86_OP_MOV_ACC_TO_MEM : X86_OP_MOV_MEM_TO_ACC;
         WIDTH opWidth = decodeWidth(byte1 & 0b1);
@@ -276,28 +355,28 @@ DecodedOp decodeOp(u8* bytes) {
             }
         }
 
-    } else if(sevenBitOpCode == OP_CODE_IMM_TO_RM) { // imm to r/m
+    } else if(sevenBitOpCode == OP_CODE_MOV_IMM_TO_RM) { // [OP][MOD|000|RM][DISP-LO][DISP-HI][DATA][DATA if word]
 
         result.op = X86_OP_MOV_IMM_TO_RM;
         WIDTH opWidth = decodeWidth(byte1 & 0b1);
         u8 byte2 = *bytes++; // mod 000 r/m
         Mode mode = decodeMode(byte2 >> 6, byte2 & 0b111, opWidth);
 
-        if(mode.operandFlags & MODE_FLAGS_REG1_EFF_ADDR) { // mem = [reg + ?]
+        if(mode.flags & MODE_FLAGS_REG1_EFF_ADDR) { // mem = [reg + ?]
             result.firstOperand.reg1 = mode.reg1;
             result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_MEM_REG1);
         }
 
-        if(mode.operandFlags & MODE_FLAGS_REG2_EFF_ADDR) { // mem = [reg1 + reg2 + ?]
+        if(mode.flags & MODE_FLAGS_REG2_EFF_ADDR) { // mem = [reg1 + reg2 + ?]
             result.firstOperand.reg2 = mode.reg2;
             result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_MEM_REG2);
         }
 
-        if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_8BIT) { // imm to [mem + 8-bit displacement]
+        if(mode.flags & MODE_FLAGS_HAS_DISPLACE_8BIT) { // imm to [mem + 8-bit displacement]
             u8 displacement = *bytes++;
             result.firstOperand.displacement = displacement;
             result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_DISPLACEMENT_8BITS);
-        } else if(mode.operandFlags & MODE_FLAGS_HAS_DISPLACE_16BIT) { // imm to [mem + 16-bit displacement]
+        } else if(mode.flags & MODE_FLAGS_HAS_DISPLACE_16BIT) { // imm to [mem + 16-bit displacement]
             u16 displacement = *(u16*)bytes; bytes += 2;
             result.firstOperand.displacement = displacement;
             result.firstOperand.flags = turnOnFlags(result.firstOperand.flags, OPERAND_FLAGS_DISPLACEMENT_16BITS);
@@ -324,6 +403,44 @@ DecodedOp decodeOp(u8* bytes) {
     return result;
 }
 
+// TODO: Heavily consider just indexing everything in an array
+const char* opName(X86_OP op) {
+    if(op > x86_OP_MOV__START && op < X86_OP_ADD__END ) {
+        return "mov";
+    } else if(op > X86_OP_ADD__START && op < X86_OP_ADD__END) {
+        return "add";
+    } else if(op > X86_OP_SUB__START && op < X86_OP_SUB__END) {
+        return "sub";
+    } else if(op > X86_OP_CMP__START && op < X86_OP_CMP__END) {
+        return "cmp";
+    } else if(op > X86_OP_JMP__START && op < X86_OP_JMP__END) {
+        switch(op) {
+            case X86_OP_JE_JZ: return "jz";
+            case X86_OP_JL_JNGE: return "jl";
+            case X86_OP_JLE_JNG: return "jle";
+            case X86_OP_JB_JNAE: return "jb";
+            case X86_OP_JBE_JNA: return "jbe";
+            case X86_OP_JP_JPE: return "jp";
+            case X86_OP_JO: return "jo";
+            case X86_OP_JS: return "js";
+            case X86_OP_JNE_JNZ: return "jne";
+            case X86_OP_JNL_JGE: return "jnl";
+            case X86_OP_JNLE_JG: return "jnle";
+            case X86_OP_JNB_JAE: return "jnb";
+            case X86_OP_JNBE_JA: return "jnbe";
+            case X86_OP_JNP_JPO: return "jnp";
+            case X86_OP_JNO: return "jno";
+            case X86_OP_JNS: return "jns";
+            case X86_OP_LOOP: return "loop";
+            case X86_OP_LOOPZ_LOOPE: return "loopz";
+            case X86_OP_LOOPNZ_LOOPNE: return "loopnz";
+            case X86_OP_JCXZ: return "jcxz";
+        }
+    }
+
+    InvalidCodePath return "";
+}
+
 void read8086Mnemonic(const char* asmFilePath) {
     u8* inputFileBuffer;
     long fileLen;
@@ -347,7 +464,7 @@ void read8086Mnemonic(const char* asmFilePath) {
         currentByte = op.nextByte;
 
         printf("\n");
-        printf("mov ");
+        printf("%s ", opName(op.op));
 
         auto writeAndPrintOperand = [](X86Operand operand, u8 prevOperandFlags) {
             if(operand.flags & OPERAND_FLAGS_REG) { // reg
