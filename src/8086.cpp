@@ -16,13 +16,6 @@ enum X86_OP {
     X86_OP_ADD_RM_TO_FROM_REG,
     X86_OP_ADD_IMM_TO_RM,
     x86_OP_ADD_IMM_TO_ACC,
-    X86_OP_ADD__END,
-
-    X86_OP_ADC_IMM_TO_RM,
-    X86_OP_SBB_IMM_FROM_RM,
-    X86_OP_AND_IMM_WITH_RM,
-    X86_OP_OR_IMM_WITH_RM,
-    X86_OP_XOR_IMM_WITH_RM,
 
     X86_OP_SUB__START,
     X86_OP_SUB_RM_TO_FROM_REG,
@@ -58,6 +51,13 @@ enum X86_OP {
     X86_OP_LOOPNZ_LOOPNE,
     X86_OP_JCXZ,
     X86_OP_JMP__END,
+    X86_OP_ADD__END,
+
+    X86_OP_ADC_IMM_TO_RM,
+    X86_OP_SBB_IMM_FROM_RM,
+    X86_OP_AND_IMM_WITH_RM,
+    X86_OP_OR_IMM_WITH_RM,
+    X86_OP_XOR_IMM_WITH_RM,
 };
 
 namespace X86_REG {
@@ -231,264 +231,84 @@ DecodedOp decodeOp(u8* bytes) {
     };
 
     using namespace X86_OP_METADATA;
-    OpMetadata opMetadata[256] = {
-        /* 0000 0000 */ {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2}, 
-        /* 0000 0001 */ {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | SIZE_WORD}, 
-        /* 0000 0010 */ {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST}, 
-        /* 0000 0011 */ {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD}, 
-        /* 0000 0100 */ {x86_OP_ADD_IMM_TO_ACC, ACC | IMM | REG_IS_DST}, 
-        /* 0000 0101 */ {x86_OP_ADD_IMM_TO_ACC, ACC | IMM | REG_IS_DST | SIZE_WORD}, 
-        /* 0000 0110 */ {}, 
-        /* 0000 0111 */ {}, 
-        /* 0000 1000 */ {}, 
-        /* 0000 1001 */ {}, 
-        /* 0000 1010 */ {}, 
-        /* 0000 1011 */ {}, 
-        /* 0000 1100 */ {}, 
-        /* 0000 1101 */ {}, 
-        /* 0000 1110 */ {}, 
-        /* 0000 1111 */ {}, 
-        /* 0001 0000 */ {}, 
-        /* 0001 0001 */ {}, 
-        /* 0001 0010 */ {}, 
-        /* 0001 0011 */ {}, 
-        /* 0001 0100 */ {}, 
-        /* 0001 0101 */ {}, 
-        /* 0001 0110 */ {}, 
-        /* 0001 0111 */ {}, 
-        /* 0001 1000 */ {}, 
-        /* 0001 1001 */ {}, 
-        /* 0001 1010 */ {}, 
-        /* 0001 1011 */ {}, 
-        /* 0001 1100 */ {}, 
-        /* 0001 1101 */ {}, 
-        /* 0001 1110 */ {}, 
-        /* 0001 1111 */ {}, 
-        /* 0010 0000 */ {}, 
-        /* 0010 0001 */ {}, 
-        /* 0010 0010 */ {}, 
-        /* 0010 0011 */ {}, 
-        /* 0010 0100 */ {}, 
-        /* 0010 0101 */ {}, 
-        /* 0010 0110 */ {}, 
-        /* 0010 0111 */ {}, 
-        /* 0010 1000 */ {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2}, 
-        /* 0010 1001 */ {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | SIZE_WORD}, 
-        /* 0010 1010 */ {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST}, 
-        /* 0010 1011 */ {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD}, 
-        /* 0010 1100 */ {X86_OP_SUB_IMM_FROM_ACC, ACC | IMM | REG_IS_DST}, 
-        /* 0010 1101 */ {X86_OP_SUB_IMM_FROM_ACC, ACC | IMM | REG_IS_DST | SIZE_WORD}, 
-        /* 0010 1110 */ {}, 
-        /* 0010 1111 */ {}, 
-        /* 0011 0000 */ {}, 
-        /* 0011 0001 */ {}, 
-        /* 0011 0010 */ {}, 
-        /* 0011 0011 */ {}, 
-        /* 0011 0100 */ {}, 
-        /* 0011 0101 */ {}, 
-        /* 0011 0110 */ {}, 
-        /* 0011 0111 */ {}, 
-        /* 0011 1000 */ {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2}, 
-        /* 0011 1001 */ {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2 | SIZE_WORD}, 
-        /* 0011 1010 */ {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2 | REG_IS_DST}, 
-        /* 0011 1011 */ {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD}, 
-        /* 0011 1100 */ {X86_OP_CMP_IMM_AND_ACC, ACC | IMM | REG_IS_DST}, 
-        /* 0011 1101 */ {X86_OP_CMP_IMM_AND_ACC, ACC | IMM | REG_IS_DST | SIZE_WORD},
-        /* 0011 1110 */ {}, 
-        /* 0011 1111 */ {}, 
-        /* 0100 0000 */ {}, 
-        /* 0100 0001 */ {}, 
-        /* 0100 0010 */ {}, 
-        /* 0100 0011 */ {}, 
-        /* 0100 0100 */ {}, 
-        /* 0100 0101 */ {}, 
-        /* 0100 0110 */ {}, 
-        /* 0100 0111 */ {}, 
-        /* 0100 1000 */ {}, 
-        /* 0100 1001 */ {}, 
-        /* 0100 1010 */ {}, 
-        /* 0100 1011 */ {}, 
-        /* 0100 1100 */ {}, 
-        /* 0100 1101 */ {}, 
-        /* 0100 1110 */ {}, 
-        /* 0100 1111 */ {}, 
-        /* 0101 0000 */ {}, 
-        /* 0101 0001 */ {}, 
-        /* 0101 0010 */ {}, 
-        /* 0101 0011 */ {}, 
-        /* 0101 0100 */ {}, 
-        /* 0101 0101 */ {}, 
-        /* 0101 0110 */ {}, 
-        /* 0101 0111 */ {}, 
-        /* 0101 1000 */ {}, 
-        /* 0101 1001 */ {}, 
-        /* 0101 1010 */ {}, 
-        /* 0101 1011 */ {}, 
-        /* 0101 1100 */ {}, 
-        /* 0101 1101 */ {}, 
-        /* 0101 1110 */ {}, 
-        /* 0101 1111 */ {}, 
-        /* 0110 0000 */ {}, 
-        /* 0110 0001 */ {}, 
-        /* 0110 0010 */ {}, 
-        /* 0110 0011 */ {}, 
-        /* 0110 0100 */ {}, 
-        /* 0110 0101 */ {}, 
-        /* 0110 0110 */ {}, 
-        /* 0110 0111 */ {}, 
-        /* 0110 1000 */ {}, 
-        /* 0110 1001 */ {}, 
-        /* 0110 1010 */ {}, 
-        /* 0110 1011 */ {}, 
-        /* 0110 1100 */ {}, 
-        /* 0110 1101 */ {}, 
-        /* 0110 1110 */ {}, 
-        /* 0110 1111 */ {}, 
-        /* 0111 0000 */ {X86_OP_JO, INC_IP_8BIT}, 
-        /* 0111 0001 */ {X86_OP_JNO, INC_IP_8BIT}, 
-        /* 0111 0010 */ {X86_OP_JB_JNAE, INC_IP_8BIT}, 
-        /* 0111 0011 */ {X86_OP_JNB_JAE, INC_IP_8BIT}, 
-        /* 0111 0100 */ {X86_OP_JE_JZ, INC_IP_8BIT}, 
-        /* 0111 0101 */ {X86_OP_JNE_JNZ, INC_IP_8BIT}, 
-        /* 0111 0110 */ {X86_OP_JBE_JNA, INC_IP_8BIT}, 
-        /* 0111 0111 */ {X86_OP_JNBE_JA, INC_IP_8BIT}, 
-        /* 0111 1000 */ {X86_OP_JS, INC_IP_8BIT}, 
-        /* 0111 1001 */ {X86_OP_JNS, INC_IP_8BIT}, 
-        /* 0111 1010 */ {X86_OP_JP_JPE, INC_IP_8BIT}, 
-        /* 0111 1011 */ {X86_OP_JNP_JPO, INC_IP_8BIT}, 
-        /* 0111 1100 */ {X86_OP_JL_JNGE, INC_IP_8BIT}, 
-        /* 0111 1101 */ {X86_OP_JNL_JGE, INC_IP_8BIT}, 
-        /* 0111 1110 */ {X86_OP_JLE_JNG, INC_IP_8BIT}, 
-        /* 0111 1111 */ {X86_OP_JNLE_JG, INC_IP_8BIT}, 
-        /* 1000 0000 */ {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM, extOps_1000_00xx},
-        /* 1000 0001 */ {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM | SIZE_WORD, extOps_1000_00xx},
-        /* 1000 0010 */ {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM | SIGN_EXT, extOps_1000_00xx},
-        /* 1000 0011 */ {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM | SIGN_EXT | SIZE_WORD, extOps_1000_00xx},
-        /* 1000 0100 */ {}, 
-        /* 1000 0101 */ {}, 
-        /* 1000 0110 */ {}, 
-        /* 1000 0111 */ {}, 
-        /* 1000 1000 */ {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2}, 
-        /* 1000 1001 */ {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | SIZE_WORD}, 
-        /* 1000 1010 */ {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST}, 
-        /* 1000 1011 */ {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD}, 
-        /* 1000 1100 */ {}, 
-        /* 1000 1101 */ {}, 
-        /* 1000 1110 */ {}, 
-        /* 1000 1111 */ {}, 
-        /* 1001 0000 */ {}, 
-        /* 1001 0001 */ {}, 
-        /* 1001 0010 */ {}, 
-        /* 1001 0011 */ {}, 
-        /* 1001 0100 */ {}, 
-        /* 1001 0101 */ {}, 
-        /* 1001 0110 */ {}, 
-        /* 1001 0111 */ {}, 
-        /* 1001 1000 */ {}, 
-        /* 1001 1001 */ {}, 
-        /* 1001 1010 */ {}, 
-        /* 1001 1011 */ {}, 
-        /* 1001 1100 */ {}, 
-        /* 1001 1101 */ {}, 
-        /* 1001 1110 */ {}, 
-        /* 1001 1111 */ {}, 
-        /* 1010 0000 */ {X86_OP_MOV_MEM_TO_ACC, ACC | MEM | REG_IS_DST}, 
-        /* 1010 0001 */ {X86_OP_MOV_MEM_TO_ACC, ACC | MEM | REG_IS_DST | SIZE_WORD}, 
-        /* 1010 0010 */ {X86_OP_MOV_ACC_TO_MEM, ACC | MEM}, 
-        /* 1010 0011 */ {X86_OP_MOV_ACC_TO_MEM, ACC | MEM | SIZE_WORD},
-        /* 1010 0100 */ {}, 
-        /* 1010 0101 */ {}, 
-        /* 1010 0110 */ {}, 
-        /* 1010 0111 */ {}, 
-        /* 1010 1000 */ {}, 
-        /* 1010 1001 */ {}, 
-        /* 1010 1010 */ {}, 
-        /* 1010 1011 */ {}, 
-        /* 1010 1100 */ {}, 
-        /* 1010 1101 */ {}, 
-        /* 1010 1110 */ {}, 
-        /* 1010 1111 */ {}, 
-        /* 1011 0000 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}, 
-        /* 1011 0001 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}, 
-        /* 1011 0010 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}, 
-        /* 1011 0011 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}, 
-        /* 1011 0100 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}, 
-        /* 1011 0101 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}, 
-        /* 1011 0110 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}, 
-        /* 1011 0111 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}, 
-        /* 1011 1000 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}, 
-        /* 1011 1001 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}, 
-        /* 1011 1010 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}, 
-        /* 1011 1011 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}, 
-        /* 1011 1100 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}, 
-        /* 1011 1101 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}, 
-        /* 1011 1110 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}, 
-        /* 1011 1111 */ {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}, 
-        /* 1100 0000 */ {}, 
-        /* 1100 0001 */ {}, 
-        /* 1100 0010 */ {}, 
-        /* 1100 0011 */ {}, 
-        /* 1100 0100 */ {}, 
-        /* 1100 0101 */ {}, 
-        /* 1100 0110 */ {X86_OP_MOV_IMM_TO_RM, MOD_RM | IMM}, 
-        /* 1100 0111 */ {X86_OP_MOV_IMM_TO_RM, MOD_RM | IMM | SIZE_WORD}, 
-        /* 1100 1000 */ {}, 
-        /* 1100 1001 */ {}, 
-        /* 1100 1010 */ {}, 
-        /* 1100 1011 */ {}, 
-        /* 1100 1100 */ {}, 
-        /* 1100 1101 */ {}, 
-        /* 1100 1110 */ {}, 
-        /* 1100 1111 */ {}, 
-        /* 1101 0000 */ {}, 
-        /* 1101 0001 */ {}, 
-        /* 1101 0010 */ {}, 
-        /* 1101 0011 */ {}, 
-        /* 1101 0100 */ {}, 
-        /* 1101 0101 */ {}, 
-        /* 1101 0110 */ {}, 
-        /* 1101 0111 */ {}, 
-        /* 1101 1000 */ {}, 
-        /* 1101 1001 */ {}, 
-        /* 1101 1010 */ {}, 
-        /* 1101 1011 */ {}, 
-        /* 1101 1100 */ {}, 
-        /* 1101 1101 */ {}, 
-        /* 1101 1110 */ {}, 
-        /* 1101 1111 */ {}, 
-        /* 1110 0000 */ {X86_OP_LOOPNZ_LOOPNE, INC_IP_8BIT}, 
-        /* 1110 0001 */ {X86_OP_LOOPZ_LOOPE, INC_IP_8BIT}, 
-        /* 1110 0010 */ {X86_OP_LOOP, INC_IP_8BIT}, 
-        /* 1110 0011 */ {X86_OP_JCXZ, INC_IP_8BIT}, 
-        /* 1110 0100 */ {}, 
-        /* 1110 0101 */ {}, 
-        /* 1110 0110 */ {}, 
-        /* 1110 0111 */ {}, 
-        /* 1110 1000 */ {}, 
-        /* 1110 1001 */ {}, 
-        /* 1110 1010 */ {}, 
-        /* 1110 1011 */ {}, 
-        /* 1110 1100 */ {}, 
-        /* 1110 1101 */ {}, 
-        /* 1110 1110 */ {}, 
-        /* 1110 1111 */ {}, 
-        /* 1111 0000 */ {}, 
-        /* 1111 0001 */ {}, 
-        /* 1111 0010 */ {}, 
-        /* 1111 0011 */ {}, 
-        /* 1111 0100 */ {}, 
-        /* 1111 0101 */ {}, 
-        /* 1111 0110 */ {}, 
-        /* 1111 0111 */ {}, 
-        /* 1111 1000 */ {}, 
-        /* 1111 1001 */ {}, 
-        /* 1111 1010 */ {}, 
-        /* 1111 1011 */ {}, 
-        /* 1111 1100 */ {}, 
-        /* 1111 1101 */ {}, 
-        /* 1111 1110 */ {}, 
-        /* 1111 1111 */ {}, 
-    };
+    OpMetadata opMetadata[256] = {};
+    opMetadata[0b0000'0001] = {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | SIZE_WORD};
+    opMetadata[0b0000'0000] = {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2};
+    opMetadata[0b0000'0010] = {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST};
+    opMetadata[0b0000'0011] = {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD};
+    opMetadata[0b0000'0100] = {x86_OP_ADD_IMM_TO_ACC, ACC | IMM | REG_IS_DST};
+    opMetadata[0b0000'0101] = {x86_OP_ADD_IMM_TO_ACC, ACC | IMM | REG_IS_DST | SIZE_WORD};
+    // TODO: 0000 0110 to 0010 0111 
+    opMetadata[0b0010'1000] = {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2};
+    opMetadata[0b0010'1001] = {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | SIZE_WORD};
+    opMetadata[0b0010'1010] = {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST};
+    opMetadata[0b0010'1011] = {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD};
+    opMetadata[0b0010'1100] = {X86_OP_SUB_IMM_FROM_ACC, ACC | IMM | REG_IS_DST};
+    opMetadata[0b0010'1101] = {X86_OP_SUB_IMM_FROM_ACC, ACC | IMM | REG_IS_DST | SIZE_WORD};
+    // TODO: 0010 1110 to 0011 0111 
+    opMetadata[0b0011'1000] = {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2};
+    opMetadata[0b0011'1001] = {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2 | SIZE_WORD};
+    opMetadata[0b0011'1010] = {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2 | REG_IS_DST};
+    opMetadata[0b0011'1011] = {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD};
+    opMetadata[0b0011'1100] = {X86_OP_CMP_IMM_AND_ACC, ACC | IMM | REG_IS_DST};
+    opMetadata[0b0011'1101] = {X86_OP_CMP_IMM_AND_ACC, ACC | IMM | REG_IS_DST | SIZE_WORD};
+    // TODO: 0011 1110 to 0110 1111 
+    opMetadata[0b0111'0000] = {X86_OP_JO, INC_IP_8BIT};
+    opMetadata[0b0111'0001] = {X86_OP_JNO, INC_IP_8BIT};
+    opMetadata[0b0111'0010] = {X86_OP_JB_JNAE, INC_IP_8BIT};
+    opMetadata[0b0111'0011] = {X86_OP_JNB_JAE, INC_IP_8BIT};
+    opMetadata[0b0111'0100] = {X86_OP_JE_JZ, INC_IP_8BIT};
+    opMetadata[0b0111'0101] = {X86_OP_JNE_JNZ, INC_IP_8BIT};
+    opMetadata[0b0111'0110] = {X86_OP_JBE_JNA, INC_IP_8BIT};
+    opMetadata[0b0111'0111] = {X86_OP_JNBE_JA, INC_IP_8BIT};
+    opMetadata[0b0111'1000] = {X86_OP_JS, INC_IP_8BIT};
+    opMetadata[0b0111'1001] = {X86_OP_JNS, INC_IP_8BIT};
+    opMetadata[0b0111'1010] = {X86_OP_JP_JPE, INC_IP_8BIT};
+    opMetadata[0b0111'1011] = {X86_OP_JNP_JPO, INC_IP_8BIT};
+    opMetadata[0b0111'1100] = {X86_OP_JL_JNGE, INC_IP_8BIT};
+    opMetadata[0b0111'1101] = {X86_OP_JNL_JGE, INC_IP_8BIT};
+    opMetadata[0b0111'1110] = {X86_OP_JLE_JNG, INC_IP_8BIT};
+    opMetadata[0b0111'1111] = {X86_OP_JNLE_JG, INC_IP_8BIT};
+    opMetadata[0b1000'0000] = {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM, extOps_1000_00xx};
+    opMetadata[0b1000'0001] = {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM | SIZE_WORD, extOps_1000_00xx};
+    opMetadata[0b1000'0010] = {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM | SIGN_EXT, extOps_1000_00xx};
+    opMetadata[0b1000'0011] = {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM | SIGN_EXT | SIZE_WORD, extOps_1000_00xx};
+    // TODO: 1000 0100 to 1000 0111
+    opMetadata[0b1000'1000] = {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2}; 
+    opMetadata[0b1000'1001] = {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | SIZE_WORD}; 
+    opMetadata[0b1000'1010] = {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST}; 
+    opMetadata[0b1000'1011] = {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD}; 
+    // TODO: 1000 1100 to 1001 1111
+    opMetadata[0b1010'0000] = {X86_OP_MOV_MEM_TO_ACC, ACC | MEM | REG_IS_DST}; 
+    opMetadata[0b1010'0001] = {X86_OP_MOV_MEM_TO_ACC, ACC | MEM | REG_IS_DST | SIZE_WORD}; 
+    opMetadata[0b1010'0010] = {X86_OP_MOV_ACC_TO_MEM, ACC | MEM}; 
+    opMetadata[0b1010'0011] = {X86_OP_MOV_ACC_TO_MEM, ACC | MEM | SIZE_WORD};
+    // TODO: 1010 0100 to 1010 1111
+    opMetadata[0b1011'0000] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
+    opMetadata[0b1011'0001] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
+    opMetadata[0b1011'0010] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
+    opMetadata[0b1011'0011] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
+    opMetadata[0b1011'0100] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
+    opMetadata[0b1011'0101] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
+    opMetadata[0b1011'0110] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
+    opMetadata[0b1011'0111] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
+    opMetadata[0b1011'1000] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
+    opMetadata[0b1011'1001] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
+    opMetadata[0b1011'1010] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
+    opMetadata[0b1011'1011] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
+    opMetadata[0b1011'1100] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
+    opMetadata[0b1011'1101] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
+    opMetadata[0b1011'1110] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
+    opMetadata[0b1011'1111] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
+    // TODO: 1100 0000 to 1100 0101
+    opMetadata[0b1100'0110] = {X86_OP_MOV_IMM_TO_RM, MOD_RM | IMM}; 
+    opMetadata[0b1100'0111] = {X86_OP_MOV_IMM_TO_RM, MOD_RM | IMM | SIZE_WORD}; 
+    // TODO: 1100 1000 to 1101 1111
+    opMetadata[0b1110'0000] = {X86_OP_LOOPNZ_LOOPNE, INC_IP_8BIT}; 
+    opMetadata[0b1110'0001] = {X86_OP_LOOPZ_LOOPE, INC_IP_8BIT}; 
+    opMetadata[0b1110'0010] = {X86_OP_LOOP, INC_IP_8BIT}; 
+    opMetadata[0b1110'0011] = {X86_OP_JCXZ, INC_IP_8BIT}; 
+    // TODO: 1110 0100 to 1111 1111 
 
     u8 byte1 = *bytes++;
 
@@ -639,9 +459,17 @@ const char* opName(X86_OP op) {
             case X86_OP_LOOPNZ_LOOPNE: return "loopnz";
             case X86_OP_JCXZ: return "jcxz";
         }
+    } else {
+        switch (op)
+        {
+            case X86_OP_ADC_IMM_TO_RM: return "adc";
+            case X86_OP_SBB_IMM_FROM_RM: return "sbb";
+            case X86_OP_AND_IMM_WITH_RM: return "and";
+            case X86_OP_OR_IMM_WITH_RM: return "or";
+            case X86_OP_XOR_IMM_WITH_RM: return "xor";
+        }
     }
-
-    InvalidCodePath return "";
+    InvalidCodePath return "Unknown or unsupported op";
 }
 
 void read8086Mnemonic(const char* asmFilePath) {
@@ -696,8 +524,10 @@ void read8086Mnemonic(const char* asmFilePath) {
             }
         };
 
-        writeAndPrintOperand(op.operand1, 0);
-        if((op.operand2.flags & OPERAND_FLAGS_NO_OPERAND) == 0) {
+        if(op.operand2.flags & OPERAND_FLAGS_NO_OPERAND) { // assume some kind of jmp
+            op.operand1.displacement >= 0 ? printf("$+%d", op.operand1.displacement) : printf("$%d", op.operand1.displacement);
+        } else { 
+            writeAndPrintOperand(op.operand1, 0);
             printf(", ");
             writeAndPrintOperand(op.operand2, op.operand1.flags);
         }
