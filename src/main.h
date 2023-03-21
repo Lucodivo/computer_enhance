@@ -10,6 +10,7 @@
 #include <string>
 #include <sstream>
 #include <stdint.h>
+#include <assert.h>
 
 typedef int8_t s8;
 typedef int16_t s16;
@@ -31,27 +32,16 @@ typedef s32 b32;
 #define func_persist static
 #define class_persist static
 
-#define Pi32 3.14159265359f
-#define PiOverTwo32 1.57079632679f
-#define Tau32 6.28318530717958647692f
-#define RadiansPerDegree (Pi32 / 180.0f)
-#define U32_MAX ~0u
-
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 
 // Out is used to label out function parameters
 #define Out
 
-#ifdef NDEBUG
-#define Assert(Expression)
-#else
-#define Assert(Expression) if(!(Expression)) *(u8*)0=0
-#endif
-
-#define InvalidCodePath Assert(!"InvalidCodePath");
+#define InvalidCodePath assert(!"InvalidCodePath");
 
 #include "platform_windows.h"
 
 #include "util.h"
 #include "add.cpp"
+#include "8086.hpp"
 #include "8086.cpp"

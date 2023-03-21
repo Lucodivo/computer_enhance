@@ -1,475 +1,172 @@
 #define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n"
 
-enum X86_OP {
-    X86_OP_UNDEFINED = 0,
-    X86_OP_PARTIAL_OP,
-
-    x86_OP_MOV__START,
-    X86_OP_MOV_RM_TO_FROM_REG,
-    X86_OP_MOV_IMM_TO_RM,
-    X86_OP_MOV_IMM_TO_REG,
-    X86_OP_MOV_MEM_TO_ACC,
-    X86_OP_MOV_ACC_TO_MEM,
-    X86_OP_MOV__END,
-
-    X86_OP_ADD__START,
-    X86_OP_ADD_RM_TO_FROM_REG,
-    X86_OP_ADD_IMM_TO_RM,
-    x86_OP_ADD_IMM_TO_ACC,
-
-    X86_OP_SUB__START,
-    X86_OP_SUB_RM_TO_FROM_REG,
-    X86_OP_SUB_IMM_FROM_RM,
-    X86_OP_SUB_IMM_FROM_ACC,
-    X86_OP_SUB__END,
-
-    X86_OP_CMP__START,
-    X86_OP_CMP_RM_AND_REG,
-    X86_OP_CMP_IMM_AND_RM,
-    X86_OP_CMP_IMM_AND_ACC,
-    X86_OP_CMP__END,
-
-    X86_OP_JMP__START,
-    X86_OP_JE_JZ,
-    X86_OP_JL_JNGE,
-    X86_OP_JLE_JNG,
-    X86_OP_JB_JNAE,
-    X86_OP_JBE_JNA,
-    X86_OP_JP_JPE,
-    X86_OP_JO,
-    X86_OP_JS,
-    X86_OP_JNE_JNZ,
-    X86_OP_JNL_JGE,
-    X86_OP_JNLE_JG,
-    X86_OP_JNB_JAE,
-    X86_OP_JNBE_JA,
-    X86_OP_JNP_JPO,
-    X86_OP_JNO,
-    X86_OP_JNS,
-    X86_OP_LOOP,
-    X86_OP_LOOPZ_LOOPE,
-    X86_OP_LOOPNZ_LOOPNE,
-    X86_OP_JCXZ,
-    X86_OP_JMP__END,
-    X86_OP_ADD__END,
-
-    X86_OP_ADC_IMM_TO_RM,
-    X86_OP_SBB_IMM_FROM_RM,
-    X86_OP_AND_IMM_WITH_RM,
-    X86_OP_OR_IMM_WITH_RM,
-    X86_OP_XOR_IMM_WITH_RM,
-};
-
-namespace X86_REG {
-    enum Value { // NOTE: ORDER MATTERS
-        AX, CX, DX, BX,
-        SP, BP, SI, DI,
-
-        AL, CL, DL, BL,
-        AH, CH, DH, BH
-    };
-    const char* regName(Value val) {
-        const char* regNames[] = { // NOTE: ORDER FOLLOWS ENUMS
-                "ax","cx", "dx", "bx",
-                "sp", "bp", "si", "di",
-
-                "al","cl", "dl", "bl",
-                "ah","ch", "dh", "bh"
-        };
-        return regNames[val];
-    }
-};
-
-enum DIRECTION {
-    DIR_REG_IS_SRC = 0,
-    DIR_REG_IS_DST = 1
-};
-
-enum WIDTH {
-    WIDTH_BYTE = 0,
-    WIDTH_WORD = 1
-};
-
-enum MODE_FLAGS {
-    MODE_FLAGS_REG = 1 << 0,
-    MODE_FLAGS_REG1_EFF_ADDR = 1 << 1,
-    MODE_FLAGS_REG2_EFF_ADDR = 1 << 2,
-    MODE_FLAGS_HAS_DISPLACE_8BIT = 1 << 3,
-    MODE_FLAGS_HAS_DISPLACE_16BIT = 1 << 4
-};
-
-struct Mode {
-    union {
-        X86_REG::Value reg;
-        X86_REG::Value memReg1;
-    };
-    X86_REG::Value memReg2;
-    u8 flags;
-};
-
-enum OPERAND_FLAGS {
-    OPERAND_FLAGS_REG = 1 << 0,
-    OPERAND_FLAGS_MEM_REG1 = 1 << 1,
-    OPERAND_FLAGS_MEM_REG2 = 1 << 2,
-    OPERAND_FLAGS_DISPLACEMENT = 1 << 3,
-    OPERAND_FLAGS_IMM_8BITS = 1 << 4,
-    OPERAND_FLAGS_IMM_16BITS = 1 << 5,
-    OPERAND_FLAGS_NO_OPERAND = 1 << 6,
-};
-
-struct X86Operand {
-    union {
-        X86_REG::Value reg;
-        X86_REG::Value memReg1;
-    };
-    X86_REG::Value memReg2;
-    union {
-        s16 displacement;
-        s16 immediate;
-    };
-    u8 flags;
-};
-
-struct DecodedOp {
-    X86_OP op;
-    X86Operand operand1;
-    X86Operand operand2;
-    u8* nextByte;
-};
-
-// TODO: Special cases
-namespace X86_OP_METADATA {
-    enum Value : u32 {
-        REG_IS_DST      = 1 << 0, // if 0, reg is src where applicable
-        SIGN_EXT        = 1 << 1, // if 0, values are not sign extended
-        SIZE_WORD       = 1 << 2, // if 0, values are 1 byte where applicable
-        REG_BYTE1       = 1 << 3, // There's a reg code in byte 1
-        MOD_RM          = 1 << 4, // Three's a MOD R/M in byte 2
-        REG_BYTE2       = 1 << 5, // There's a reg code in byte 2
-        PARTIAL_OP      = 1 << 6, // There's an addt'l op code in byte 2
-        IMM             = 1 << 7, // Immediate data follows
-        MEM             = 1 << 8, // Memory data follows
-        ACC             = 1 << 9, // Op uses the accumulator (AX/AL)
-        INC_IP_8BIT     = 1 << 10,// Signed increment to instruction pointer (jumps)
-    };
-};
-
-struct OpMetadata { // NOTE: member order matters and is depended on
-    X86_OP op;
-    u32 flags;
-    X86_OP* extOps;
-};
-
-X86_REG::Value decodeRegWord(u8 regCode) {
-    Assert(regCode >= 0b000 && regCode <= 0b111);
-    return X86_REG::Value(regCode + X86_REG::AX);
+X86::REG decodeReg(u8 regCode, X86::WIDTH width) {
+    assert(regCode >= 0b000 && regCode <= 0b111);
+    return X86::REG(regCode + (width == X86::BYTE ? X86::AL : X86::AX));
 }
 
-X86_REG::Value decodeRegByte(u8 regCode) {
-    Assert(regCode >= 0b000 && regCode <= 0b111);
-    return X86_REG::Value(regCode + X86_REG::AL);
-}
+X86::RegMem decodeRegMem(u8 mod, u8 rm, X86::WIDTH width) {
+    assert(mod >= 0b00 && mod <= 0b11);
+    assert(rm >= 0b000 && rm <= 0b111);
 
-X86_REG::Value decodeReg(u8 reg, WIDTH width) {
-    return width == WIDTH_BYTE ? decodeRegByte(reg) : decodeRegWord(reg);
-}
-
-Mode decodeMode(u8 mod, u8 rm, WIDTH width) {
-    Assert(mod >= 0b00 && mod <= 0b11);
-    Assert(rm >= 0b000 && rm <= 0b111);
-
-    Mode result{};
+    X86::RegMem result{};
 
     // register to register
     if(mod == 0b11) {
-        result.memReg1 = decodeReg(rm, width);
-        result.flags = turnOnFlags(result.flags, MODE_FLAGS_REG);
+        result.reg = decodeReg(rm, width);
+        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_REG);
         return result;
     }
 
     // direct access special case
     if(rm == 0b110 && mod == 0b00) {
-        result.flags = MODE_FLAGS_HAS_DISPLACE_16BIT;
+        result.flags = X86::RM_FLAGS_HAS_DISPLACE_16BIT;
         return result;
     }
 
     // load effective memory address to register
-    X86_REG::Value effAddrRegs0to4[4][2] = {
-        {X86_REG::BX, X86_REG::SI},
-        {X86_REG::BX, X86_REG::DI},
-        {X86_REG::BP, X86_REG::SI},
-        {X86_REG::BP, X86_REG::DI}
+    X86::REG effAddrRegs0to4[4][2] = {
+        {X86::BX, X86::SI},
+        {X86::BX, X86::DI},
+        {X86::BP, X86::SI},
+        {X86::BP, X86::DI}
     };
-    X86_REG::Value effAddrRegs5to7[4] { X86_REG::SI, X86_REG::DI, X86_REG::BP, X86_REG::BX };
+    X86::REG effAddrRegs5to7[4] { X86::SI, X86::DI, X86::BP, X86::BX };
 
     if(rm < 0b100) {
         result.memReg1 = effAddrRegs0to4[rm][0];
         result.memReg2 = effAddrRegs0to4[rm][1];
-        result.flags = turnOnFlags(result.flags, MODE_FLAGS_REG1_EFF_ADDR | MODE_FLAGS_REG2_EFF_ADDR);
+        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_REG1_EFF_ADDR | X86::RM_FLAGS_REG2_EFF_ADDR);
     } else {
         result.memReg1 = effAddrRegs5to7[rm - 4];
-        result.flags = turnOnFlags(result.flags, MODE_FLAGS_REG1_EFF_ADDR);
+        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_REG1_EFF_ADDR);
     }
-    result.flags = turnOnFlags(result.flags, mod == 0b01 ? MODE_FLAGS_HAS_DISPLACE_8BIT : 0b0);
-    result.flags = turnOnFlags(result.flags, mod == 0b10 ? MODE_FLAGS_HAS_DISPLACE_16BIT : 0b0);
+    
+    if(mod == 0b01) {
+        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_HAS_DISPLACE_8BIT);
+    } else if(mod == 0b10) {
+        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_HAS_DISPLACE_16BIT);
+    }
+
     return result;
 }
 
-DecodedOp decodeOp(u8* bytes) {
+X86::DecodedOp decodeOp(u8* bytes) {
 
-    DecodedOp result{};
-
-    X86_OP extOps_1000_00xx[8] {
-        X86_OP_ADD_IMM_TO_RM, // 000
-        X86_OP_OR_IMM_WITH_RM, // 001
-        X86_OP_ADC_IMM_TO_RM, // 010
-        X86_OP_SBB_IMM_FROM_RM, // 011
-        X86_OP_AND_IMM_WITH_RM, // 100
-        X86_OP_SUB_IMM_FROM_RM, // 101
-        X86_OP_XOR_IMM_WITH_RM, // 110
-        X86_OP_CMP_IMM_AND_RM, // 111
-    };
-
-    using namespace X86_OP_METADATA;
-    OpMetadata opMetadata[256] = {};
-    opMetadata[0b0000'0001] = {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | SIZE_WORD};
-    opMetadata[0b0000'0000] = {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2};
-    opMetadata[0b0000'0010] = {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST};
-    opMetadata[0b0000'0011] = {X86_OP_ADD_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD};
-    opMetadata[0b0000'0100] = {x86_OP_ADD_IMM_TO_ACC, ACC | IMM | REG_IS_DST};
-    opMetadata[0b0000'0101] = {x86_OP_ADD_IMM_TO_ACC, ACC | IMM | REG_IS_DST | SIZE_WORD};
-    // TODO: 0000 0110 to 0010 0111 
-    opMetadata[0b0010'1000] = {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2};
-    opMetadata[0b0010'1001] = {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | SIZE_WORD};
-    opMetadata[0b0010'1010] = {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST};
-    opMetadata[0b0010'1011] = {X86_OP_SUB_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD};
-    opMetadata[0b0010'1100] = {X86_OP_SUB_IMM_FROM_ACC, ACC | IMM | REG_IS_DST};
-    opMetadata[0b0010'1101] = {X86_OP_SUB_IMM_FROM_ACC, ACC | IMM | REG_IS_DST | SIZE_WORD};
-    // TODO: 0010 1110 to 0011 0111 
-    opMetadata[0b0011'1000] = {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2};
-    opMetadata[0b0011'1001] = {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2 | SIZE_WORD};
-    opMetadata[0b0011'1010] = {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2 | REG_IS_DST};
-    opMetadata[0b0011'1011] = {X86_OP_CMP_RM_AND_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD};
-    opMetadata[0b0011'1100] = {X86_OP_CMP_IMM_AND_ACC, ACC | IMM | REG_IS_DST};
-    opMetadata[0b0011'1101] = {X86_OP_CMP_IMM_AND_ACC, ACC | IMM | REG_IS_DST | SIZE_WORD};
-    // TODO: 0011 1110 to 0110 1111 
-    opMetadata[0b0111'0000] = {X86_OP_JO, INC_IP_8BIT};
-    opMetadata[0b0111'0001] = {X86_OP_JNO, INC_IP_8BIT};
-    opMetadata[0b0111'0010] = {X86_OP_JB_JNAE, INC_IP_8BIT};
-    opMetadata[0b0111'0011] = {X86_OP_JNB_JAE, INC_IP_8BIT};
-    opMetadata[0b0111'0100] = {X86_OP_JE_JZ, INC_IP_8BIT};
-    opMetadata[0b0111'0101] = {X86_OP_JNE_JNZ, INC_IP_8BIT};
-    opMetadata[0b0111'0110] = {X86_OP_JBE_JNA, INC_IP_8BIT};
-    opMetadata[0b0111'0111] = {X86_OP_JNBE_JA, INC_IP_8BIT};
-    opMetadata[0b0111'1000] = {X86_OP_JS, INC_IP_8BIT};
-    opMetadata[0b0111'1001] = {X86_OP_JNS, INC_IP_8BIT};
-    opMetadata[0b0111'1010] = {X86_OP_JP_JPE, INC_IP_8BIT};
-    opMetadata[0b0111'1011] = {X86_OP_JNP_JPO, INC_IP_8BIT};
-    opMetadata[0b0111'1100] = {X86_OP_JL_JNGE, INC_IP_8BIT};
-    opMetadata[0b0111'1101] = {X86_OP_JNL_JGE, INC_IP_8BIT};
-    opMetadata[0b0111'1110] = {X86_OP_JLE_JNG, INC_IP_8BIT};
-    opMetadata[0b0111'1111] = {X86_OP_JNLE_JG, INC_IP_8BIT};
-    opMetadata[0b1000'0000] = {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM, extOps_1000_00xx};
-    opMetadata[0b1000'0001] = {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM | SIZE_WORD, extOps_1000_00xx};
-    opMetadata[0b1000'0010] = {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM | SIGN_EXT, extOps_1000_00xx};
-    opMetadata[0b1000'0011] = {X86_OP_PARTIAL_OP, MOD_RM | PARTIAL_OP | IMM | SIGN_EXT | SIZE_WORD, extOps_1000_00xx};
-    // TODO: 1000 0100 to 1000 0111
-    opMetadata[0b1000'1000] = {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2}; 
-    opMetadata[0b1000'1001] = {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | SIZE_WORD}; 
-    opMetadata[0b1000'1010] = {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST}; 
-    opMetadata[0b1000'1011] = {X86_OP_MOV_RM_TO_FROM_REG, MOD_RM | REG_BYTE2 | REG_IS_DST | SIZE_WORD}; 
-    // TODO: 1000 1100 to 1001 1111
-    opMetadata[0b1010'0000] = {X86_OP_MOV_MEM_TO_ACC, ACC | MEM | REG_IS_DST}; 
-    opMetadata[0b1010'0001] = {X86_OP_MOV_MEM_TO_ACC, ACC | MEM | REG_IS_DST | SIZE_WORD}; 
-    opMetadata[0b1010'0010] = {X86_OP_MOV_ACC_TO_MEM, ACC | MEM}; 
-    opMetadata[0b1010'0011] = {X86_OP_MOV_ACC_TO_MEM, ACC | MEM | SIZE_WORD};
-    // TODO: 1010 0100 to 1010 1111
-    opMetadata[0b1011'0000] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
-    opMetadata[0b1011'0001] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
-    opMetadata[0b1011'0010] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
-    opMetadata[0b1011'0011] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
-    opMetadata[0b1011'0100] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
-    opMetadata[0b1011'0101] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
-    opMetadata[0b1011'0110] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
-    opMetadata[0b1011'0111] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM}; 
-    opMetadata[0b1011'1000] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
-    opMetadata[0b1011'1001] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
-    opMetadata[0b1011'1010] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
-    opMetadata[0b1011'1011] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
-    opMetadata[0b1011'1100] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
-    opMetadata[0b1011'1101] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
-    opMetadata[0b1011'1110] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
-    opMetadata[0b1011'1111] = {X86_OP_MOV_IMM_TO_REG, REG_BYTE1 | REG_IS_DST | IMM | SIZE_WORD}; 
-    // TODO: 1100 0000 to 1100 0101
-    opMetadata[0b1100'0110] = {X86_OP_MOV_IMM_TO_RM, MOD_RM | IMM}; 
-    opMetadata[0b1100'0111] = {X86_OP_MOV_IMM_TO_RM, MOD_RM | IMM | SIZE_WORD}; 
-    // TODO: 1100 1000 to 1101 1111
-    opMetadata[0b1110'0000] = {X86_OP_LOOPNZ_LOOPNE, INC_IP_8BIT}; 
-    opMetadata[0b1110'0001] = {X86_OP_LOOPZ_LOOPE, INC_IP_8BIT}; 
-    opMetadata[0b1110'0010] = {X86_OP_LOOP, INC_IP_8BIT}; 
-    opMetadata[0b1110'0011] = {X86_OP_JCXZ, INC_IP_8BIT}; 
-    // TODO: 1110 0100 to 1111 1111 
-
+    X86::DecodedOp result{};
     u8 byte1 = *bytes++;
 
-    OpMetadata firstByteMetadata = opMetadata[byte1];
-    Assert(firstByteMetadata.op != 0);
+    X86::OpMetadata firstByteMetadata = X86::opMetadata[byte1];
+    assert(firstByteMetadata.op != 0);
 
     result.op = firstByteMetadata.op;
-    DIRECTION regIsDest = DIRECTION((firstByteMetadata.flags & REG_IS_DST) > 0);
-    WIDTH regWidth = WIDTH((firstByteMetadata.flags & SIZE_WORD) > 0);
+    bool regIsDest = firstByteMetadata.flags & X86::REG_IS_DST;
+    X86::WIDTH regWidth = X86::WIDTH((firstByteMetadata.flags & X86::WIDTH_WORD) > 0);
 
-    if(firstByteMetadata.flags & ACC) {
-        X86_REG::Value reg = regWidth == WIDTH_WORD ? X86_REG::AX : X86_REG::AL;
+    if(firstByteMetadata.flags & X86::ACC) {
+        X86::REG reg = regWidth == X86::WORD ? X86::AX : X86::AL;
         if(regIsDest) { // TODO: factor out
             result.operand1.reg = reg;
-            result.operand1.flags = OPERAND_FLAGS_REG;
+            result.operand1.flags = X86::OPERAND_REG;
         } else {
             result.operand2.reg = reg;
-            result.operand2.flags = OPERAND_FLAGS_REG;
+            result.operand2.flags = X86::OPERAND_REG;
         }
     }
 
-    if(firstByteMetadata.flags & REG_BYTE1) {
-        X86_REG::Value reg = decodeReg(byte1 & 0b111, regWidth);
+    if(firstByteMetadata.flags & X86::REG_BYTE1) {
+        X86::REG reg = decodeReg(byte1 & 0b111, regWidth);
         if(regIsDest) { // TODO: factor out
             result.operand1.reg = reg;
-            result.operand1.flags = OPERAND_FLAGS_REG;
+            result.operand1.flags = X86::OPERAND_REG;
         } else {
             result.operand2.reg = reg;
-            result.operand2.flags = OPERAND_FLAGS_REG;
+            result.operand2.flags = X86::OPERAND_REG;
         }
     }
     
-    if(firstByteMetadata.flags & MOD_RM) {
+    if(firstByteMetadata.flags & X86::MOD_RM) {
         u8 byte2 = *bytes++; // mod reg rm
 
-        if(firstByteMetadata.flags & REG_BYTE2) {
-            X86_REG::Value reg = decodeReg((byte2 & 0b00111000) >> 3, regWidth);
+        if(firstByteMetadata.flags & X86::REG_BYTE2) {
+            X86::REG reg = decodeReg((byte2 & 0b00111000) >> 3, regWidth);
             if(regIsDest) { // TODO: factor out
                 result.operand1.reg = reg;
-                result.operand1.flags = OPERAND_FLAGS_REG;
+                result.operand1.flags = X86::OPERAND_REG;
             } else {
                 result.operand2.reg = reg;
-                result.operand2.flags = OPERAND_FLAGS_REG;
+                result.operand2.flags = X86::OPERAND_REG;
             }
         } 
         
-        if(firstByteMetadata.flags & PARTIAL_OP) {
-            Assert((firstByteMetadata.flags & REG_BYTE2) == 0);
-            Assert(result.op == X86_OP_PARTIAL_OP);
-            Assert(firstByteMetadata.extOps);
+        if(firstByteMetadata.flags & X86::ADDTL_OP_CODE) {
+            assert((firstByteMetadata.flags & X86::REG_BYTE2) == 0);
+            assert(result.op == X86::PARTIAL_OP);
+            assert(firstByteMetadata.extOps);
             result.op = firstByteMetadata.extOps[(byte2 & 0b00111000) >> 3];
         }
 
-        Mode mode = decodeMode(byte2 >> 6, byte2 & 0b111, regWidth);
+        X86::RegMem regMem = decodeRegMem(byte2 >> 6, byte2 & 0b111, regWidth);
 
-        X86Operand* rmOperand;
+        X86::Operand* rmOperand;
         if(regIsDest) {
             rmOperand = &result.operand2;
         } else {
             rmOperand = &result.operand1;
         }
 
-        if(mode.flags & MODE_FLAGS_REG) {
-            rmOperand->reg = mode.memReg1;
-            rmOperand->flags = turnOnFlags(rmOperand->flags, OPERAND_FLAGS_REG);
+        if(regMem.isReg()) {
+            rmOperand->reg = regMem.reg;
+            rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_REG);
         } else {
-            if(mode.flags & MODE_FLAGS_REG1_EFF_ADDR) { // mem = [reg + ?]
-                rmOperand->memReg1 = mode.memReg1;
-                rmOperand->flags = turnOnFlags(rmOperand->flags, OPERAND_FLAGS_MEM_REG1);
+            if(regMem.flags & X86::RM_FLAGS_REG1_EFF_ADDR) { // mem = [reg + ?]
+                rmOperand->memReg1 = regMem.memReg1;
+                rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_MEM_REG1);
             }
 
-            if(mode.flags & MODE_FLAGS_REG2_EFF_ADDR) { // mem = [memReg1 + memReg2 + ?]
-                rmOperand->memReg2 = mode.memReg2;
-                rmOperand->flags = turnOnFlags(rmOperand->flags, OPERAND_FLAGS_MEM_REG2);
+            if(regMem.flags & X86::RM_FLAGS_REG2_EFF_ADDR) { // mem = [memReg1 + memReg2 + ?]
+                rmOperand->memReg2 = regMem.memReg2;
+                rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_MEM_REG2);
             }
 
-            if(mode.flags & (MODE_FLAGS_HAS_DISPLACE_8BIT | MODE_FLAGS_HAS_DISPLACE_16BIT)) {
-                if(mode.flags & MODE_FLAGS_HAS_DISPLACE_8BIT) {
-                    rmOperand->displacement = *(s8*)bytes++;
-                } else {
-                    rmOperand->displacement = *(s16*)bytes; bytes += 2;
-                }
-                rmOperand->flags = turnOnFlags(rmOperand->flags, OPERAND_FLAGS_DISPLACEMENT);
+            if(regMem.flags & X86::RM_FLAGS_HAS_DISPLACE_8BIT) {
+                rmOperand->displacement = *(s8*)bytes++;
+                rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
+            } else if(regMem.flags & X86::RM_FLAGS_HAS_DISPLACE_16BIT) {
+                rmOperand->displacement = *(s16*)bytes; bytes += 2;
+                rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
             }
         }
     }
 
-    if(firstByteMetadata.flags & IMM) {
-        if(firstByteMetadata.flags & SIZE_WORD) {
-            result.operand2.flags = OPERAND_FLAGS_IMM_16BITS;
-            if(firstByteMetadata.flags & SIGN_EXT) {
+    if(firstByteMetadata.flags & X86::IMM) {
+        if(firstByteMetadata.flags & X86::WIDTH_WORD) {
+            result.operand2.flags = X86::OPERAND_IMM_16BITS;
+            if(firstByteMetadata.flags & X86::SIGN_EXT) {
                 result.operand2.immediate = *(s8*)bytes++;
             } else {
                 result.operand2.immediate = *(s16*)bytes; bytes += 2;
             }
         } else {
-            result.operand2.flags = OPERAND_FLAGS_IMM_8BITS;
+            result.operand2.flags = X86::OPERAND_IMM_8BITS;
             result.operand2.immediate = *(s8*)bytes++;
         }
     }
 
-    if(firstByteMetadata.flags & MEM) {
-        X86Operand* memOperand = regIsDest ? &result.operand2 : &result.operand1;
-        memOperand->flags = OPERAND_FLAGS_DISPLACEMENT;
+    if(firstByteMetadata.flags & X86::MEM) {
+        X86::Operand* memOperand = regIsDest ? &result.operand2 : &result.operand1;
+        memOperand->flags = X86::OPERAND_DISPLACEMENT;
         memOperand->displacement = *(s16*)bytes; bytes += 2;
     }
 
-    if(firstByteMetadata.flags & INC_IP_8BIT) {
+    if(firstByteMetadata.flags & X86::INC_IP_8BIT) {
         result.operand1.displacement = *(s8*)bytes++;
-        result.operand1.flags = OPERAND_FLAGS_DISPLACEMENT;
-        result.operand2.flags = OPERAND_FLAGS_NO_OPERAND;
+        result.operand1.flags = X86::OPERAND_DISPLACEMENT;
+        result.operand2.flags = X86::OPERAND_NO_OPERAND;
     }
 
     result.nextByte = bytes;
     return result;
-}
-
-// TODO: Heavily consider just indexing everything in an array
-const char* opName(X86_OP op) {
-    if(op > x86_OP_MOV__START && op < X86_OP_ADD__END ) {
-        return "mov";
-    } else if(op > X86_OP_ADD__START && op < X86_OP_ADD__END) {
-        return "add";
-    } else if(op > X86_OP_SUB__START && op < X86_OP_SUB__END) {
-        return "sub";
-    } else if(op > X86_OP_CMP__START && op < X86_OP_CMP__END) {
-        return "cmp";
-    } else if(op > X86_OP_JMP__START && op < X86_OP_JMP__END) {
-        switch(op) {
-            case X86_OP_JE_JZ: return "je";
-            case X86_OP_JL_JNGE: return "jl";
-            case X86_OP_JLE_JNG: return "jle";
-            case X86_OP_JB_JNAE: return "jb";
-            case X86_OP_JBE_JNA: return "jbe";
-            case X86_OP_JP_JPE: return "jp";
-            case X86_OP_JO: return "jo";
-            case X86_OP_JS: return "js";
-            case X86_OP_JNE_JNZ: return "jnz";
-            case X86_OP_JNL_JGE: return "jnl";
-            case X86_OP_JNLE_JG: return "jg";
-            case X86_OP_JNB_JAE: return "jnb";
-            case X86_OP_JNBE_JA: return "ja";
-            case X86_OP_JNP_JPO: return "jnp";
-            case X86_OP_JNO: return "jno";
-            case X86_OP_JNS: return "jns";
-            case X86_OP_LOOP: return "loop";
-            case X86_OP_LOOPZ_LOOPE: return "loopz";
-            case X86_OP_LOOPNZ_LOOPNE: return "loopnz";
-            case X86_OP_JCXZ: return "jcxz";
-        }
-    } else {
-        switch (op)
-        {
-            case X86_OP_ADC_IMM_TO_RM: return "adc";
-            case X86_OP_SBB_IMM_FROM_RM: return "sbb";
-            case X86_OP_AND_IMM_WITH_RM: return "and";
-            case X86_OP_OR_IMM_WITH_RM: return "or";
-            case X86_OP_XOR_IMM_WITH_RM: return "xor";
-        }
-    }
-    InvalidCodePath return "Unknown or unsupported op";
 }
 
 void read8086Mnemonic(const char* asmFilePath) {
@@ -491,45 +188,45 @@ void read8086Mnemonic(const char* asmFilePath) {
     u8* lastByte = inputFileBuffer + fileLen;
     u8* currentByte = inputFileBuffer;
     while(currentByte < lastByte) {
-        DecodedOp op = decodeOp(currentByte); 
+        X86::DecodedOp op = decodeOp(currentByte); 
         currentByte = op.nextByte;
 
         printf("\n");
-        printf("%s ", opName(op.op));
+        printf("%s ", X86::opName(op.op));
 
-        auto writeAndPrintOperand = [](X86Operand operand, u8 prevOperandFlags) {
-            if(operand.flags & OPERAND_FLAGS_REG) { // reg
-                printf("%s", X86_REG::regName(operand.reg));
-            } else if(checkAnyFlags(operand.flags, OPERAND_FLAGS_MEM_REG1 | OPERAND_FLAGS_DISPLACEMENT)) { // mem
+        auto writeAndPrintOperand = [](X86::Operand operand, X86::Operand* prevOperand) {
+            if(operand.isReg()) {
+                printf("%s", X86::regName(operand.reg));
+            } else if(operand.isMem()) {
                 printf("[");
-                if(operand.flags & OPERAND_FLAGS_MEM_REG1) { // effective address
-                    printf("%s", X86_REG::regName(operand.memReg1));
-                    if(operand.flags & OPERAND_FLAGS_MEM_REG2) {
-                        printf(" + %s", X86_REG::regName(operand.memReg2));
+                if(operand.flags & X86::OPERAND_MEM_REG1) { // effective address
+                    printf("%s", X86::regName(operand.memReg1));
+                    if(operand.flags & X86::OPERAND_MEM_REG2) {
+                        printf(" + %s", X86::regName(operand.memReg2));
                     }
-                    if(operand.flags & OPERAND_FLAGS_DISPLACEMENT) {
+                    if(operand.flags & X86::OPERAND_DISPLACEMENT) {
                         operand.displacement >= 0 ? printf(" + %d", operand.displacement) : printf(" - %d", operand.displacement * -1);
                     }
-                } else if(operand.flags & OPERAND_FLAGS_DISPLACEMENT) { // direct address
+                } else if(operand.flags & X86::OPERAND_DISPLACEMENT) { // direct address
                     printf("%d", operand.displacement);
                 }
                 printf("]");
-            } else if(checkAnyFlags(operand.flags, OPERAND_FLAGS_IMM_8BITS | OPERAND_FLAGS_IMM_16BITS)) { // imm
-                bool operand1WasMem = checkAnyFlags(prevOperandFlags, OPERAND_FLAGS_MEM_REG1 | OPERAND_FLAGS_DISPLACEMENT);
-                if(operand.flags & OPERAND_FLAGS_IMM_8BITS) {
+            } else if(operand.isImm()) {
+                bool operand1WasMem = prevOperand ? prevOperand->isMem() : false;
+                if(operand.flags & X86::OPERAND_IMM_8BITS) {
                     printf(operand1WasMem ? "byte %d" : "%d", operand.immediate);
-                } else if(operand.flags & OPERAND_FLAGS_IMM_16BITS) {
+                } else if(operand.flags & X86::OPERAND_IMM_16BITS) {
                     printf(operand1WasMem ? "word %d" : "%d", operand.immediate);
                 }
             }
         };
 
-        if(op.operand2.flags & OPERAND_FLAGS_NO_OPERAND) { // assume some kind of jmp
+        if(op.operand2.flags & X86::OPERAND_NO_OPERAND) { // assume some kind of jmp
             op.operand1.displacement >= 0 ? printf("$+%d", op.operand1.displacement) : printf("$%d", op.operand1.displacement);
         } else { 
-            writeAndPrintOperand(op.operand1, 0);
+            writeAndPrintOperand(op.operand1, nullptr);
             printf(", ");
-            writeAndPrintOperand(op.operand2, op.operand1.flags);
+            writeAndPrintOperand(op.operand2, &op.operand1);
         }
     }
     free(inputFileBuffer);
