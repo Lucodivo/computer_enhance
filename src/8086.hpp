@@ -15,6 +15,7 @@ namespace X86 {
         ADD_RM_TO_FROM_REG,
         ADD_IMM_TO_RM,
         ADD_IMM_TO_ACC,
+        ADD__END,
 
         SUB__START,
         SUB_RM_TO_FROM_REG,
@@ -50,7 +51,6 @@ namespace X86 {
         LOOPNZ_LOOPNE,
         JCXZ,
         JMP__END,
-        ADD__END,
 
         ADC_IMM_TO_RM,
         SBB_IMM_FROM_RM,
@@ -152,55 +152,8 @@ namespace X86 {
             "ah","ch", "dh", "bh"
     };
 
-    const char* regName(REG val) {
-        return regNames[val];
-    }
-
-    // TODO: Heavily consider just indexing everything in an array
-    const char* opName(X86::OP op) {
-        if(op > X86::MOV__START && op < X86::ADD__END ) {
-            return "mov";
-        } else if(op > X86::ADD__START && op < X86::ADD__END) {
-            return "add";
-        } else if(op > X86::SUB__START && op < X86::SUB__END) {
-            return "sub";
-        } else if(op > X86::CMP__START && op < X86::CMP__END) {
-            return "cmp";
-        } else if(op > X86::JMP__START && op < X86::JMP__END) {
-            switch(op) {
-                case X86::JE_JZ: return "je";
-                case X86::JL_JNGE: return "jl";
-                case X86::JLE_JNG: return "jle";
-                case X86::JB_JNAE: return "jb";
-                case X86::JBE_JNA: return "jbe";
-                case X86::JP_JPE: return "jp";
-                case X86::JO: return "jo";
-                case X86::JS: return "js";
-                case X86::JNE_JNZ: return "jnz";
-                case X86::JNL_JGE: return "jnl";
-                case X86::JNLE_JG: return "jg";
-                case X86::JNB_JAE: return "jnb";
-                case X86::JNBE_JA: return "ja";
-                case X86::JNP_JPO: return "jnp";
-                case X86::JNO: return "jno";
-                case X86::JNS: return "jns";
-                case X86::LOOP: return "loop";
-                case X86::LOOPZ_LOOPE: return "loopz";
-                case X86::LOOPNZ_LOOPNE: return "loopnz";
-                case X86::JCXZ: return "jcxz";
-            }
-        } else {
-            switch (op)
-            {
-                case X86::ADC_IMM_TO_RM: return "adc";
-                case X86::SBB_IMM_FROM_RM: return "sbb";
-                case X86::AND_IMM_WITH_RM: return "and";
-                case X86::OR_IMM_WITH_RM: return "or";
-                case X86::XOR_IMM_WITH_RM: return "xor";
-            }
-        }
-        InvalidCodePath return "Unknown or unsupported op";
-    }
+    const char* regName(REG val);
+    const char* opName(X86::OP op);
 
     OP extOps_1000_00xx[8] {
         ADD_IMM_TO_RM, // 000
