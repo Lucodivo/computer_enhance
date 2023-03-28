@@ -1,5 +1,55 @@
 #define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n\n"
 
+// TODO: Consider just indexing everything in an array
+const char* X86::opName(X86::OP op) {
+    if(op > X86::MOV__START && op < X86::MOV__END ) {
+        return "mov";
+    } else if(op > X86::ADD__START && op < X86::ADD__END) {
+        return "add";
+    } else if(op > X86::SUB__START && op < X86::SUB__END) {
+        return "sub";
+    } else if(op > X86::CMP__START && op < X86::CMP__END) {
+        return "cmp";
+    } else if(op > X86::JMP__START && op < X86::JMP__END) {
+        switch(op) {
+            case X86::JE_JZ: return "je";
+            case X86::JL_JNGE: return "jl";
+            case X86::JLE_JNG: return "jle";
+            case X86::JB_JNAE: return "jb";
+            case X86::JBE_JNA: return "jbe";
+            case X86::JP_JPE: return "jp";
+            case X86::JO: return "jo";
+            case X86::JS: return "js";
+            case X86::JNE_JNZ: return "jnz";
+            case X86::JNL_JGE: return "jnl";
+            case X86::JNLE_JG: return "jg";
+            case X86::JNB_JAE: return "jnb";
+            case X86::JNBE_JA: return "ja";
+            case X86::JNP_JPO: return "jnp";
+            case X86::JNO: return "jno";
+            case X86::JNS: return "jns";
+            case X86::LOOP: return "loop";
+            case X86::LOOPZ_LOOPE: return "loopz";
+            case X86::LOOPNZ_LOOPNE: return "loopnz";
+            case X86::JCXZ: return "jcxz";
+        }
+    } else {
+        switch (op)
+        {
+            case X86::ADC_IMM_TO_RM: return "adc";
+            case X86::SBB_IMM_FROM_RM: return "sbb";
+            case X86::AND_IMM_WITH_RM: return "and";
+            case X86::OR_IMM_WITH_RM: return "or";
+            case X86::XOR_IMM_WITH_RM: return "xor";
+        }
+    }
+    InvalidCodePath return "Unknown or unsupported op";
+}
+
+const char* X86::regName(REG val) {
+    return regNames[val];
+}
+
 X86::REG decodeReg(u8 regCode, X86::WIDTH width) {
     assert(regCode >= 0b000 && regCode <= 0b111);
     return X86::REG(regCode + (width == X86::BYTE ? X86::AL : X86::AX));
@@ -150,7 +200,6 @@ X86::DecodedOp decodeOp(u8* bytes) {
 }
 
 void printOp(X86::DecodedOp op) {
-
     printf("%s ", X86::opName(op.op));
 
     auto writeAndPrintOperand = [](X86::Operand operand, X86::Operand* prevOperand) {
@@ -181,7 +230,7 @@ void printOp(X86::DecodedOp op) {
     };
 
     if(op.operand2.flags & X86::OPERAND_NO_OPERAND) { // assume some kind of jmp
-        op.operand1.displacement >= 0 ? printf("$+%d", op.operand1.displacement) : printf("$%d", op.operand1.displacement);
+        printf("$%+d", op.operand1.displacement + 2);
     } else { 
         writeAndPrintOperand(op.operand1, nullptr);
         printf(", ");
@@ -261,6 +310,5 @@ void decode8086Binary(const char* asmFilePath, bool execute) {
         currentByte = op.nextByte;
     }
     if(execute) { printFinalRegisters(cpuState); }
-
     free(inputFileBuffer);
 }
