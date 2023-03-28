@@ -66,6 +66,57 @@ namespace X86 {
         AL, CL, DL, BL,
         AH, CH, DH, BH
     };
+    bool regIsWide(REG reg) { return reg < AL; };
+
+    struct CpuState {
+        static const u8 regEnumToOffset[16];
+        struct {
+            union { // NOTE: ORDER MATTERS
+                u16 ax;
+                u8 a[2];
+            };
+            union {
+                u16 bx;
+                u8 b[2];
+            };
+            union {
+                u16 cx;
+                u8 c[2];
+            };
+            union {
+                u16 dx;
+                u8 d[2];
+            };
+            u16 sp;
+            u16 bp;
+            u16 si;
+            u16 di;
+        } regs;
+
+        u16 regVal(REG reg) {
+            u8 offset = regEnumToOffset[reg];
+            u8* regPtr = (u8*)&regs + offset;
+            return regIsWide(reg) ? *(u16*)regPtr : *regPtr;
+        }
+
+        void regSet(REG reg, u16 val) {
+            u8 offset = regEnumToOffset[reg];
+            u8* regPtr = (u8*)&regs + offset;
+            if(regIsWide(reg)) {
+                u16* reg16Ptr = (u16*)regPtr;
+                *reg16Ptr = val;
+            } else {
+                *regPtr = (u8)val;
+            }
+        }
+    };
+    const u8 CpuState::regEnumToOffset[16] = {
+        0, 2, 4, 6, // ax, bx, cx, dx 
+        8, 10, 12, 14, // sp, bp, si, di
+
+        0, 2, 4, 6, // al, bl, cl, dl
+        1, 3, 5, 7, // ah, bh, ch, dh
+    };
 
     enum WIDTH {
         BYTE = 0,

@@ -1,4 +1,4 @@
-#define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n"
+#define OUTPUT_FILE_HEADER "; Instruction decoding on the 8086 Homework by Connor Haskins\n\nbits 16\n\n"
 
 X86::REG decodeReg(u8 regCode, X86::WIDTH width) {
     assert(regCode >= 0b000 && regCode <= 0b111);
@@ -14,7 +14,7 @@ X86::RegMem decodeRegMem(u8 mod, u8 rm, X86::WIDTH width) {
     // register to register
     if(mod == 0b11) {
         result.reg = decodeReg(rm, width);
-        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_REG);
+        result.flags = setFlags(result.flags, X86::RM_FLAGS_REG);
         return result;
     }
 
@@ -36,16 +36,16 @@ X86::RegMem decodeRegMem(u8 mod, u8 rm, X86::WIDTH width) {
     if(rm < 0b100) {
         result.memReg1 = effAddrRegs0to4[rm][0];
         result.memReg2 = effAddrRegs0to4[rm][1];
-        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_REG1_EFF_ADDR | X86::RM_FLAGS_REG2_EFF_ADDR);
+        result.flags = setFlags(result.flags, X86::RM_FLAGS_REG1_EFF_ADDR | X86::RM_FLAGS_REG2_EFF_ADDR);
     } else {
         result.memReg1 = effAddrRegs5to7[rm - 4];
-        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_REG1_EFF_ADDR);
+        result.flags = setFlags(result.flags, X86::RM_FLAGS_REG1_EFF_ADDR);
     }
     
     if(mod == 0b01) {
-        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_HAS_DISPLACE_8BIT);
+        result.flags = setFlags(result.flags, X86::RM_FLAGS_HAS_DISPLACE_8BIT);
     } else if(mod == 0b10) {
-        result.flags = turnOnFlags(result.flags, X86::RM_FLAGS_HAS_DISPLACE_16BIT);
+        result.flags = setFlags(result.flags, X86::RM_FLAGS_HAS_DISPLACE_16BIT);
     }
 
     return result;
@@ -60,43 +60,30 @@ X86::DecodedOp decodeOp(u8* bytes) {
     assert(firstByteMetadata.op != 0);
 
     result.op = firstByteMetadata.op;
-    bool regIsDest = firstByteMetadata.flags & X86::REG_IS_DST;
+    bool regIsDst = firstByteMetadata.flags & X86::REG_IS_DST;
     X86::WIDTH regWidth = X86::WIDTH((firstByteMetadata.flags & X86::WIDTH_WORD) > 0);
+    
+    // Note: there may not be a reg operand but if there is, it will be decided by regIsDst
+    X86::Operand* regOperand = regIsDst ? &result.operand1 : &result.operand2;
 
     if(firstByteMetadata.flags & X86::ACC) {
-        X86::REG reg = regWidth == X86::WORD ? X86::AX : X86::AL;
-        if(regIsDest) { // TODO: factor out
-            result.operand1.reg = reg;
-            result.operand1.flags = X86::OPERAND_REG;
-        } else {
-            result.operand2.reg = reg;
-            result.operand2.flags = X86::OPERAND_REG;
-        }
+        regOperand->reg = regWidth == X86::WORD ? X86::AX : X86::AL;
+        regOperand->flags = X86::OPERAND_REG;
     }
 
     if(firstByteMetadata.flags & X86::REG_BYTE1) {
-        X86::REG reg = decodeReg(byte1 & 0b111, regWidth);
-        if(regIsDest) { // TODO: factor out
-            result.operand1.reg = reg;
-            result.operand1.flags = X86::OPERAND_REG;
-        } else {
-            result.operand2.reg = reg;
-            result.operand2.flags = X86::OPERAND_REG;
-        }
+        regOperand->reg = decodeReg(byte1 & 0b111, regWidth);
+        regOperand->flags = X86::OPERAND_REG;
     }
     
     if(firstByteMetadata.flags & X86::MOD_RM) {
         u8 byte2 = *bytes++; // mod reg rm
 
+        X86::Operand* rmOperand = regIsDst ? &result.operand2 : &result.operand1;
+
         if(firstByteMetadata.flags & X86::REG_BYTE2) {
-            X86::REG reg = decodeReg((byte2 & 0b00111000) >> 3, regWidth);
-            if(regIsDest) { // TODO: factor out
-                result.operand1.reg = reg;
-                result.operand1.flags = X86::OPERAND_REG;
-            } else {
-                result.operand2.reg = reg;
-                result.operand2.flags = X86::OPERAND_REG;
-            }
+            regOperand->reg = decodeReg((byte2 & 0b00111000) >> 3, regWidth);
+            regOperand->flags = X86::OPERAND_REG;
         } 
         
         if(firstByteMetadata.flags & X86::ADDTL_OP_CODE) {
@@ -108,33 +95,26 @@ X86::DecodedOp decodeOp(u8* bytes) {
 
         X86::RegMem regMem = decodeRegMem(byte2 >> 6, byte2 & 0b111, regWidth);
 
-        X86::Operand* rmOperand;
-        if(regIsDest) {
-            rmOperand = &result.operand2;
-        } else {
-            rmOperand = &result.operand1;
-        }
-
         if(regMem.isReg()) {
             rmOperand->reg = regMem.reg;
-            rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_REG);
+            rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_REG);
         } else {
             if(regMem.flags & X86::RM_FLAGS_REG1_EFF_ADDR) { // mem = [reg + ?]
                 rmOperand->memReg1 = regMem.memReg1;
-                rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_MEM_REG1);
+                rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_MEM_REG1);
             }
 
             if(regMem.flags & X86::RM_FLAGS_REG2_EFF_ADDR) { // mem = [memReg1 + memReg2 + ?]
                 rmOperand->memReg2 = regMem.memReg2;
-                rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_MEM_REG2);
+                rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_MEM_REG2);
             }
 
             if(regMem.flags & X86::RM_FLAGS_HAS_DISPLACE_8BIT) {
                 rmOperand->displacement = *(s8*)bytes++;
-                rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
+                rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
             } else if(regMem.flags & X86::RM_FLAGS_HAS_DISPLACE_16BIT) {
                 rmOperand->displacement = *(s16*)bytes; bytes += 2;
-                rmOperand->flags = turnOnFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
+                rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
             }
         }
     }
@@ -154,7 +134,7 @@ X86::DecodedOp decodeOp(u8* bytes) {
     }
 
     if(firstByteMetadata.flags & X86::MEM) {
-        X86::Operand* memOperand = regIsDest ? &result.operand2 : &result.operand1;
+        X86::Operand* memOperand = regIsDst ? &result.operand2 : &result.operand1;
         memOperand->flags = X86::OPERAND_DISPLACEMENT;
         memOperand->displacement = *(s16*)bytes; bytes += 2;
     }
@@ -169,11 +149,96 @@ X86::DecodedOp decodeOp(u8* bytes) {
     return result;
 }
 
-void read8086Mnemonic(const char* asmFilePath) {
+void printOp(X86::DecodedOp op) {
+
+    printf("%s ", X86::opName(op.op));
+
+    auto writeAndPrintOperand = [](X86::Operand operand, X86::Operand* prevOperand) {
+        if(operand.isReg()) {
+            printf("%s", X86::regName(operand.reg));
+        } else if(operand.isMem()) {
+            printf("[");
+            if(operand.flags & X86::OPERAND_MEM_REG1) { // effective address
+                printf("%s", X86::regName(operand.memReg1));
+                if(operand.flags & X86::OPERAND_MEM_REG2) {
+                    printf(" + %s", X86::regName(operand.memReg2));
+                }
+                if(operand.flags & X86::OPERAND_DISPLACEMENT) {
+                    operand.displacement >= 0 ? printf(" + %d", operand.displacement) : printf(" - %d", operand.displacement * -1);
+                }
+            } else if(operand.flags & X86::OPERAND_DISPLACEMENT) { // direct address
+                printf("%d", operand.displacement);
+            }
+            printf("]");
+        } else if(operand.isImm()) {
+            bool operand1WasMem = prevOperand ? prevOperand->isMem() : false;
+            if(operand.flags & X86::OPERAND_IMM_8BITS) {
+                printf(operand1WasMem ? "byte %d" : "%d", operand.immediate);
+            } else if(operand.flags & X86::OPERAND_IMM_16BITS) {
+                printf(operand1WasMem ? "word %d" : "%d", operand.immediate);
+            }
+        }
+    };
+
+    if(op.operand2.flags & X86::OPERAND_NO_OPERAND) { // assume some kind of jmp
+        op.operand1.displacement >= 0 ? printf("$+%d", op.operand1.displacement) : printf("$%d", op.operand1.displacement);
+    } else { 
+        writeAndPrintOperand(op.operand1, nullptr);
+        printf(", ");
+        writeAndPrintOperand(op.operand2, &op.operand1);
+    }
+}
+
+X86::CpuState executeOp(X86::DecodedOp op, X86::CpuState state) {
+    printf(" ; ");
+
+    switch(op.op) {
+        case X86::MOV_IMM_TO_REG: {
+            u16 prevValue = state.regVal(op.operand1.reg);
+            state.regSet(op.operand1.reg, op.operand2.immediate);
+            u16 newVal = state.regVal(op.operand1.reg);
+            printf("%s:0x%04x->0x%04x", regName(op.operand1.reg), prevValue, newVal);
+            break;
+        }
+        case X86::MOV_RM_TO_FROM_REG:
+            break;
+        default:
+            printf("ERROR: Executing op %s not yet implemented!", X86::opName(op.op));
+    }
+
+    return state;
+}
+
+void printFinalRegisters(X86::CpuState state) {
+    printf(
+        "\n;Final registers:\n"
+        ";\tax: 0x%04x (%d)\n"
+        ";\tbx: 0x%04x (%d)\n"
+        ";\tcx: 0x%04x (%d)\n"
+        ";\tdx: 0x%04x (%d)\n"
+        ";\tsp: 0x%04x (%d)\n"
+        ";\tbp: 0x%04x (%d)\n"
+        ";\tsi: 0x%04x (%d)\n"
+        ";\tdi: 0x%04x (%d)\n",
+        state.regs.ax, state.regs.ax,
+        state.regs.bx, state.regs.bx,
+        state.regs.cx, state.regs.cx,
+        state.regs.dx, state.regs.dx,
+        state.regs.sp, state.regs.sp,
+        state.regs.bp, state.regs.bp,
+        state.regs.si, state.regs.si,
+        state.regs.di, state.regs.di);
+}
+
+void decode8086Binary(const char* asmFilePath, bool execute) {
     u8* inputFileBuffer;
     long fileLen;
 
     FILE* inputFile = fopen(asmFilePath, "rb");
+    if(!inputFile) {
+        printf("ERROR: Could not find file [%s]\nABORTING", asmFilePath);
+        return;
+    }
     fseek(inputFile, 0, SEEK_END);
     fileLen = ftell(inputFile);
     rewind(inputFile);
@@ -185,49 +250,17 @@ void read8086Mnemonic(const char* asmFilePath) {
 
     printf(OUTPUT_FILE_HEADER);
     
+    X86::CpuState cpuState{};
     u8* lastByte = inputFileBuffer + fileLen;
     u8* currentByte = inputFileBuffer;
     while(currentByte < lastByte) {
         X86::DecodedOp op = decodeOp(currentByte); 
-        currentByte = op.nextByte;
-
+        printOp(op);
+        if(execute) { cpuState = executeOp(op, cpuState); }
         printf("\n");
-        printf("%s ", X86::opName(op.op));
-
-        auto writeAndPrintOperand = [](X86::Operand operand, X86::Operand* prevOperand) {
-            if(operand.isReg()) {
-                printf("%s", X86::regName(operand.reg));
-            } else if(operand.isMem()) {
-                printf("[");
-                if(operand.flags & X86::OPERAND_MEM_REG1) { // effective address
-                    printf("%s", X86::regName(operand.memReg1));
-                    if(operand.flags & X86::OPERAND_MEM_REG2) {
-                        printf(" + %s", X86::regName(operand.memReg2));
-                    }
-                    if(operand.flags & X86::OPERAND_DISPLACEMENT) {
-                        operand.displacement >= 0 ? printf(" + %d", operand.displacement) : printf(" - %d", operand.displacement * -1);
-                    }
-                } else if(operand.flags & X86::OPERAND_DISPLACEMENT) { // direct address
-                    printf("%d", operand.displacement);
-                }
-                printf("]");
-            } else if(operand.isImm()) {
-                bool operand1WasMem = prevOperand ? prevOperand->isMem() : false;
-                if(operand.flags & X86::OPERAND_IMM_8BITS) {
-                    printf(operand1WasMem ? "byte %d" : "%d", operand.immediate);
-                } else if(operand.flags & X86::OPERAND_IMM_16BITS) {
-                    printf(operand1WasMem ? "word %d" : "%d", operand.immediate);
-                }
-            }
-        };
-
-        if(op.operand2.flags & X86::OPERAND_NO_OPERAND) { // assume some kind of jmp
-            op.operand1.displacement >= 0 ? printf("$+%d", op.operand1.displacement) : printf("$%d", op.operand1.displacement);
-        } else { 
-            writeAndPrintOperand(op.operand1, nullptr);
-            printf(", ");
-            writeAndPrintOperand(op.operand2, &op.operand1);
-        }
+        currentByte = op.nextByte;
     }
+    if(execute) { printFinalRegisters(cpuState); }
+
     free(inputFileBuffer);
 }
