@@ -70,23 +70,11 @@ namespace X86 {
 
     struct CpuState {
         static const u8 regEnumToOffset[16];
-        struct {
-            union { // NOTE: ORDER MATTERS
-                u16 ax;
-                u8 a[2];
-            };
-            union {
-                u16 bx;
-                u8 b[2];
-            };
-            union {
-                u16 cx;
-                u8 c[2];
-            };
-            union {
-                u16 dx;
-                u8 d[2];
-            };
+        struct { // NOTE: ORDER MATTERS
+            u16 ax; // [u8 al, u8 ah]
+            u16 cx; // [u8 cl, u8 ch]
+            u16 dx; // [u8 dl, u8 dh]
+            u16 bx; // [u8 bl, u8 bh]
             u16 sp;
             u16 bp;
             u16 si;
@@ -111,11 +99,11 @@ namespace X86 {
         }
     };
     const u8 CpuState::regEnumToOffset[16] = {
-        0, 2, 4, 6, // ax, bx, cx, dx 
+        0, 2, 4, 6, // ax, cx, dx, bx 
         8, 10, 12, 14, // sp, bp, si, di
 
-        0, 2, 4, 6, // al, bl, cl, dl
-        1, 3, 5, 7, // ah, bh, ch, dh
+        0, 2, 4, 6, // al, cl, dl, bl
+        1, 3, 5, 7, // ah, ch, dh, bh
     };
 
     enum WIDTH {

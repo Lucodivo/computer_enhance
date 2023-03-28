@@ -243,14 +243,24 @@ X86::CpuState executeOp(X86::DecodedOp op, X86::CpuState state) {
 
     switch(op.op) {
         case X86::MOV_IMM_TO_REG: {
-            u16 prevValue = state.regVal(op.operand1.reg);
+            u16 prevVal = state.regVal(op.operand1.reg);
             state.regSet(op.operand1.reg, op.operand2.immediate);
             u16 newVal = state.regVal(op.operand1.reg);
-            printf("%s:0x%04x->0x%04x", regName(op.operand1.reg), prevValue, newVal);
+            printf("%s:0x%04x->0x%04x", regName(op.operand1.reg), prevVal, newVal);
             break;
         }
-        case X86::MOV_RM_TO_FROM_REG:
-            break;
+        case X86::MOV_RM_TO_FROM_REG: {
+            if(op.operand1.flags & X86::OPERAND_REG) { // reg is dst
+                u16 prevVal = state.regVal(op.operand1.reg);
+                if(op.operand2.flags & X86::OPERAND_REG) { // reg to reg
+                    state.regSet(op.operand1.reg, state.regVal(op.operand2.reg));
+                    u16 newVal = state.regVal(op.operand1.reg);
+                    printf("%s:0x%04x->0x%04x", regName(op.operand1.reg), prevVal, newVal);
+                    break;
+                }
+            }
+            // TODO: Implement more RM to/from REG. Put back break. Currently fall through to error.
+        }
         default:
             printf("ERROR: Executing op %s not yet implemented!", X86::opName(op.op));
     }
