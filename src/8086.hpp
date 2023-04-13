@@ -69,6 +69,18 @@ namespace X86 {
     bool regIsWide(REG reg) { return reg < AL; };
 
     struct CpuState {
+        enum FLAGS {
+            CF = 1 << 0, // Carry Flag
+            PF = 1 << 2, // Parity Flag
+            AF = 1 << 4, // Auxiliary Carry Flag
+            ZF = 1 << 6, // Zero Flag
+            SF = 1 << 7, // Sign Flag
+            TF = 1 << 8, // Trap Flag
+            IF = 1 << 9, // Interrupt Enable Flag
+            DF = 1 << 10, // Direction Flag
+            OF = 1 << 11, // Overflow Flag
+        };
+
         static const u8 regEnumToOffset[16];
         struct { // NOTE: ORDER MATTERS
             u16 ax; // [u8 al, u8 ah]
@@ -79,7 +91,13 @@ namespace X86 {
             u16 bp;
             u16 si;
             u16 di;
+            
+            u16 cs;
+            u16 ds;
+            u16 ss;
+            u16 es;
         } regs;
+        u16 flags;
 
         u16 regVal(REG reg) {
             u8 offset = regEnumToOffset[reg];
@@ -97,6 +115,22 @@ namespace X86 {
                 *regPtr = (u8)val;
             }
         }
+
+        void clearFlags() { flags = 0; }
+
+        void setFlag(FLAGS flag) { flags |= flag; }
+
+        static void printFlags(u16 flags) {
+            if(flags & CF) { printf("C"); } 
+            if(flags & PF) { printf("P"); } 
+            if(flags & AF) { printf("A"); } 
+            if(flags & ZF) { printf("Z"); } 
+            if(flags & SF) { printf("S"); } 
+            if(flags & TF) { printf("T"); } 
+            if(flags & IF) { printf("I"); } 
+            if(flags & DF) { printf("D"); } 
+            if(flags & OF) { printf("O"); }
+        };
     };
     const u8 CpuState::regEnumToOffset[16] = {
         0, 2, 4, 6, // ax, cx, dx, bx 

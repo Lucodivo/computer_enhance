@@ -238,31 +238,196 @@ void printOp(X86::DecodedOp op) {
     }
 }
 
-X86::CpuState executeOp(X86::DecodedOp op, X86::CpuState state) {
+X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
+
+    struct FUNCS {
+        static void printRegChange(X86::CpuState *state, X86::REG reg, u16 oldVal) {
+            const char* regChangeFmtStr = "%s:0x%04x->0x%04x";
+            u16 newVal = state->regVal(reg);
+            printf(regChangeFmtStr, regName(reg), oldVal, newVal);
+        }
+
+        static void printFlagsChange(u16 oldFlags, u16 newFlags) {
+            printf(" flags: ");
+            X86::CpuState::printFlags(oldFlags);
+            printf("->");
+            X86::CpuState::printFlags(newFlags);
+        }
+
+        static void updateFlagsRegister(X86::CpuState* state, u16 val) {
+            if(val & (1 << 15)) { state->setFlag(X86::CpuState::SF); 
+            } else if(val == 0) { state->setFlag(X86::CpuState::ZF); }
+            if(parity(val)) { state->setFlag(X86::CpuState::PF); }
+        }
+
+        static void executeAdd(X86::CpuState* state, X86::REG reg, u16 val) {
+            u16 oldFlags = state->flags;
+            state->clearFlags();
+            if(regIsWide(reg)) {
+                u16 prevVal = state->regVal(reg);
+                state->regSet(reg, prevVal + val);
+                printRegChange(state, reg, prevVal);
+            } else {
+                u8 prevVal = (u8)state->regVal(reg);
+                state->regSet(reg, prevVal + (u8)val);
+                printRegChange(state, reg, prevVal);
+            }
+            updateFlagsRegister(state, state->regVal(reg));
+            printFlagsChange(oldFlags, state->flags);
+        }
+
+        static void executeSub(X86::CpuState* state, X86::REG reg, u16 val) {
+            executeAdd(state, reg, (u16)0 - val);
+        }
+
+        static void executeCmp(X86::CpuState* state, u16 val1, u16 val2) {
+            u16 oldFlags = state->flags;
+            state->clearFlags();
+            u16 cmpRes = val1 - val2;
+            updateFlagsRegister(state, cmpRes);
+            printFlagsChange(oldFlags, state->flags);
+        }
+
+        static void executeMov(X86::CpuState* state, X86::REG reg, u16 val) {
+            if(regIsWide(reg)) {
+                u16 prevVal = state->regVal(reg);
+                state->regSet(reg, val);
+                printRegChange(state, reg, prevVal);
+            } else {
+                u8 prevVal = (u8)state->regVal(reg);
+                state->regSet(reg, (u8)val);
+                printRegChange(state, reg, prevVal);
+            }
+        }
+    };
+
     printf(" ; ");
 
-    switch(op.op) {
+    // Empty switch statement for all op.op cases
+    switch(decOp.op) {
         case X86::MOV_IMM_TO_REG: {
-            u16 prevVal = state.regVal(op.operand1.reg);
-            state.regSet(op.operand1.reg, op.operand2.immediate);
-            u16 newVal = state.regVal(op.operand1.reg);
-            printf("%s:0x%04x->0x%04x", regName(op.operand1.reg), prevVal, newVal);
+            FUNCS::executeMov(&state, decOp.operand1.reg, decOp.operand2.immediate);
             break;
         }
         case X86::MOV_RM_TO_FROM_REG: {
-            if(op.operand1.flags & X86::OPERAND_REG) { // reg is dst
-                u16 prevVal = state.regVal(op.operand1.reg);
-                if(op.operand2.flags & X86::OPERAND_REG) { // reg to reg
-                    state.regSet(op.operand1.reg, state.regVal(op.operand2.reg));
-                    u16 newVal = state.regVal(op.operand1.reg);
-                    printf("%s:0x%04x->0x%04x", regName(op.operand1.reg), prevVal, newVal);
-                    break;
+            if(decOp.operand1.isReg()) {
+                if(decOp.operand2.isReg()) {
+                    FUNCS::executeMov(&state, decOp.operand1.reg, state.regVal(decOp.operand2.reg));
+                } else if(decOp.operand2.isMem()) {
+                    // TODO
+                    printf("ERROR: Unimplemented mov to reg from mem");
+                } else if(decOp.operand2.isImm()) {
+                    FUNCS::executeMov(&state, decOp.operand1.reg, decOp.operand2.immediate);
                 }
+            } else { // mov to mem
+                // TODO
+                printf("ERROR: Unimplemented mov to mem");
             }
-            // TODO: Implement more RM to/from REG. Put back break. Currently fall through to error.
+            break;
         }
-        default:
-            printf("ERROR: Executing op %s not yet implemented!", X86::opName(op.op));
+
+        case X86::ADD_IMM_TO_ACC: {
+            FUNCS::executeAdd(&state, decOp.operand1.reg, decOp.operand2.immediate);
+            break;
+        }
+
+        case X86::ADD_IMM_TO_RM: {
+            if(decOp.operand1.isReg()) {
+                FUNCS::executeAdd(&state, decOp.operand1.reg, decOp.operand2.immediate);
+            } else if(decOp.operand1.isMem()) {
+                // TODO
+                printf("ERROR: Unimplemented add to mem from imm");
+            }
+            break;
+        }
+
+        case X86::SUB_IMM_FROM_ACC: {
+            FUNCS::executeSub(&state, decOp.operand1.reg, decOp.operand2.immediate);
+            break;
+        }
+
+        case X86::SUB_IMM_FROM_RM:{
+            if(decOp.operand1.isReg()) {
+                FUNCS::executeSub(&state, decOp.operand1.reg, decOp.operand2.immediate);
+            } else if(decOp.operand1.isMem()) {
+                printf("ERROR: Unimplemented sub to mem from imm");
+            }
+            break;
+        }
+
+        case X86::SUB_RM_TO_FROM_REG: {
+            if(decOp.operand1.isReg()) {
+                if(decOp.operand2.isReg()) {
+                    FUNCS::executeSub(&state, decOp.operand1.reg, state.regVal(decOp.operand2.reg));
+                } else if(decOp.operand2.isMem()) {
+                    // TODO
+                    printf("ERROR: Unimplemented sub [reg - mem]");
+                } else if(decOp.operand2.isImm()) {
+                    FUNCS::executeSub(&state, decOp.operand1.reg, decOp.operand2.immediate);
+                }
+            } else if(decOp.operand1.isMem()) {
+                // TODO
+                printf("ERROR: Unimplemented sub to mem");
+            }
+            break;
+        }
+
+        case X86::CMP_IMM_AND_ACC: {
+            FUNCS::executeCmp(&state, state.regVal(decOp.operand1.reg), decOp.operand2.immediate);
+            break;
+        }
+
+        case X86::CMP_IMM_AND_RM: {
+            u16 val1{}, val2{};
+            if(decOp.operand1.isReg()) {
+                val1 = state.regVal(decOp.operand1.reg);
+            } else if(decOp.operand1.isMem()) {
+                // TODO
+                val1 = 1 << 14;
+                printf("ERROR: Unimplemented cmp with mem");
+            } else if(decOp.operand1.isImm()) {
+                val1 = decOp.operand1.immediate;
+            }
+
+            if(decOp.operand2.isReg()) {
+                val2 = state.regVal(decOp.operand2.reg);
+            } else if(decOp.operand2.isMem()) {
+                // TODO
+                val2 = 1 << 14;
+                printf("ERROR: Unimplemented cmp with mem");
+            } else if(decOp.operand2.isImm()) {
+                val2 = decOp.operand2.immediate;
+            }
+
+            FUNCS::executeCmp(&state, val1, val2);
+            break;
+        }
+
+        case X86::CMP_RM_AND_REG: {
+            u16 val1{}, val2{};
+            if(decOp.operand1.isReg()) {
+                val1 = state.regVal(decOp.operand1.reg);
+            } else if(decOp.operand1.isMem()) {
+                // TODO
+                val1 = 1 << 14;
+                printf("ERROR: Unimplemented cmp with mem");
+            }
+
+            if(decOp.operand2.isReg()) {
+                val2 = state.regVal(decOp.operand2.reg);
+            } else if(decOp.operand2.isMem()) {
+                // TODO
+                val2 = 1 << 14;
+                printf("ERROR: Unimplemented cmp with mem");
+            }
+
+            FUNCS::executeCmp(&state, val1, val2);
+            break;
+        }
+
+        default: {
+            printf("ERROR: Executing op %s not yet implemented!", X86::opName(decOp.op));
+        }
     }
 
     return state;
@@ -278,7 +443,8 @@ void printFinalRegisters(X86::CpuState state) {
         ";\tsp: 0x%04x (%d)\n"
         ";\tbp: 0x%04x (%d)\n"
         ";\tsi: 0x%04x (%d)\n"
-        ";\tdi: 0x%04x (%d)\n",
+        ";\tdi: 0x%04x (%d)\n"
+        "flags: ",
         state.regs.ax, state.regs.ax,
         state.regs.bx, state.regs.bx,
         state.regs.cx, state.regs.cx,
@@ -287,6 +453,7 @@ void printFinalRegisters(X86::CpuState state) {
         state.regs.bp, state.regs.bp,
         state.regs.si, state.regs.si,
         state.regs.di, state.regs.di);
+    X86::CpuState::printFlags(state.flags);
 }
 
 void decode8086Binary(const char* asmFilePath, bool execute) {
