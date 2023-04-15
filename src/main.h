@@ -39,6 +39,8 @@ typedef s32 b32;
 
 #define InvalidCodePath assert(!"InvalidCodePath");
 
+#define XOR(a, b) (!(a) != !(b))
+
 #include "platform_windows.h"
 
 #include "util.h"

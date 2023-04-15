@@ -70,15 +70,15 @@ namespace X86 {
 
     struct CpuState {
         enum FLAGS {
-            CF = 1 << 0, // Carry Flag
+            CF = 1 << 0, // Carry Flag // TODO: Not yet ever set
             PF = 1 << 2, // Parity Flag
-            AF = 1 << 4, // Auxiliary Carry Flag
+            AF = 1 << 4, // Auxiliary Carry Flag // TODO: Not yet ever set
             ZF = 1 << 6, // Zero Flag
             SF = 1 << 7, // Sign Flag
-            TF = 1 << 8, // Trap Flag
-            IF = 1 << 9, // Interrupt Enable Flag
-            DF = 1 << 10, // Direction Flag
-            OF = 1 << 11, // Overflow Flag
+            TF = 1 << 8, // Trap Flag // TODO: Not yet ever set
+            IF = 1 << 9, // Interrupt Enable Flag // TODO: Not yet ever set
+            DF = 1 << 10, // Direction Flag // TODO: Not yet ever set
+            OF = 1 << 11, // Overflow Flag // TODO: Not yet ever set
         };
 
         static const u8 regEnumToOffset[16];
@@ -96,6 +96,8 @@ namespace X86 {
             u16 ds;
             u16 ss;
             u16 es;
+
+            u16 ip;
         } regs;
         u16 flags;
 
@@ -121,15 +123,19 @@ namespace X86 {
         void setFlag(FLAGS flag) { flags |= flag; }
 
         static void printFlags(u16 flags) {
-            if(flags & CF) { printf("C"); } 
-            if(flags & PF) { printf("P"); } 
-            if(flags & AF) { printf("A"); } 
-            if(flags & ZF) { printf("Z"); } 
-            if(flags & SF) { printf("S"); } 
-            if(flags & TF) { printf("T"); } 
-            if(flags & IF) { printf("I"); } 
-            if(flags & DF) { printf("D"); } 
-            if(flags & OF) { printf("O"); }
+            char flagStrBuff[10] = "";
+            u8 flagBuffIndex = 0;
+            if(flags & CF) { flagStrBuff[flagBuffIndex++] = 'C'; } 
+            if(flags & PF) { flagStrBuff[flagBuffIndex++] = 'P'; } 
+            if(flags & AF) { flagStrBuff[flagBuffIndex++] = 'A'; } 
+            if(flags & ZF) { flagStrBuff[flagBuffIndex++] = 'Z'; } 
+            if(flags & SF) { flagStrBuff[flagBuffIndex++] = 'S'; } 
+            if(flags & TF) { flagStrBuff[flagBuffIndex++] = 'T'; } 
+            if(flags & IF) { flagStrBuff[flagBuffIndex++] = 'I'; } 
+            if(flags & DF) { flagStrBuff[flagBuffIndex++] = 'D'; } 
+            if(flags & OF) { flagStrBuff[flagBuffIndex++] = 'O'; }
+            flagStrBuff[flagBuffIndex] = '\0';
+            printf(flagStrBuff);
         };
     };
     const u8 CpuState::regEnumToOffset[16] = {
@@ -214,7 +220,7 @@ namespace X86 {
         OP op;
         Operand operand1;
         Operand operand2;
-        u8* nextByte;
+        u8 sizeInBytes;
     };
 
     const char* regNames[] = { // NOTE: ORDER FOLLOWS ENUMS

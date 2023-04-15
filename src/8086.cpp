@@ -104,9 +104,9 @@ X86::RegMem decodeRegMem(u8 mod, u8 rm, X86::WIDTH width) {
 X86::DecodedOp decodeOp(u8* bytes) {
 
     X86::DecodedOp result{};
-    u8 byte1 = *bytes++;
+    u8* byte1 = bytes++;
 
-    X86::OpMetadata firstByteMetadata = X86::opMetadata[byte1];
+    X86::OpMetadata firstByteMetadata = X86::opMetadata[*byte1];
     assert(firstByteMetadata.op != 0);
 
     result.op = firstByteMetadata.op;
@@ -122,7 +122,7 @@ X86::DecodedOp decodeOp(u8* bytes) {
     }
 
     if(firstByteMetadata.flags & X86::REG_BYTE1) {
-        regOperand->reg = decodeReg(byte1 & 0b111, regWidth);
+        regOperand->reg = decodeReg(*byte1 & 0b111, regWidth);
         regOperand->flags = X86::OPERAND_REG;
     }
     
@@ -195,7 +195,7 @@ X86::DecodedOp decodeOp(u8* bytes) {
         result.operand2.flags = X86::OPERAND_NO_OPERAND;
     }
 
-    result.nextByte = bytes;
+    result.sizeInBytes = (u8)(bytes - byte1);
     return result;
 }
 
@@ -245,6 +245,7 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
             const char* regChangeFmtStr = "%s:0x%04x->0x%04x";
             u16 newVal = state->regVal(reg);
             printf(regChangeFmtStr, regName(reg), oldVal, newVal);
+            printf(" ip:0x%04x", state->regs.ip);
         }
 
         static void printFlagsChange(u16 oldFlags, u16 newFlags) {
@@ -254,7 +255,7 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
             X86::CpuState::printFlags(newFlags);
         }
 
-        static void updateFlagsRegister(X86::CpuState* state, u16 val) {
+        static void updateSZPFlagsRegister(X86::CpuState* state, u16 val) {
             if(val & (1 << 15)) { state->setFlag(X86::CpuState::SF); 
             } else if(val == 0) { state->setFlag(X86::CpuState::ZF); }
             if(parity(val)) { state->setFlag(X86::CpuState::PF); }
@@ -265,14 +266,16 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
             state->clearFlags();
             if(regIsWide(reg)) {
                 u16 prevVal = state->regVal(reg);
-                state->regSet(reg, prevVal + val);
+                u16 newVal = prevVal + val;
+                state->regSet(reg, newVal);
                 printRegChange(state, reg, prevVal);
             } else {
                 u8 prevVal = (u8)state->regVal(reg);
-                state->regSet(reg, prevVal + (u8)val);
+                u8 newVal = prevVal + (u8)val;
+                state->regSet(reg, newVal);
                 printRegChange(state, reg, prevVal);
             }
-            updateFlagsRegister(state, state->regVal(reg));
+            updateSZPFlagsRegister(state, state->regVal(reg));
             printFlagsChange(oldFlags, state->flags);
         }
 
@@ -284,7 +287,7 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
             u16 oldFlags = state->flags;
             state->clearFlags();
             u16 cmpRes = val1 - val2;
-            updateFlagsRegister(state, cmpRes);
+            updateSZPFlagsRegister(state, cmpRes);
             printFlagsChange(oldFlags, state->flags);
         }
 
@@ -299,7 +302,13 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
                 printRegChange(state, reg, prevVal);
             }
         }
+
+        static void executeJmp(X86::CpuState* state, s16 displacement) {
+            state->regs.ip += displacement;
+        }
     };
+
+    state.regs.ip += decOp.sizeInBytes;
 
     printf(" ; ");
 
@@ -425,6 +434,110 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
             break;
         }
 
+        case X86::JE_JZ: {
+            if(state.flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JL_JNGE: {
+            if(state.flags & X86::CpuState::FLAGS::SF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JLE_JNG: {
+            if(state.flags & (X86::CpuState::FLAGS::ZF | X86::CpuState::FLAGS::SF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JB_JNAE: {
+            if(state.flags & X86::CpuState::FLAGS::CF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JBE_JNA: {
+            if(state.flags & X86::CpuState::FLAGS::CF || state.flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(&state, decOp.operand1.displacement); }
+            break;
+        }
+
+        case X86::JP_JPE: {
+            if(state.flags & X86::CpuState::FLAGS::PF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JO: {
+            if(state.flags & X86::CpuState::FLAGS::OF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JS: {
+            if(state.flags & X86::CpuState::FLAGS::SF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JNE_JNZ: {
+            if(!(state.flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JNL_JGE: {
+            if(XOR(state.flags & X86::CpuState::FLAGS::SF, state.flags & X86::CpuState::FLAGS::OF)) { 
+                FUNCS::executeJmp(&state, decOp.operand1.displacement);
+            }
+            break;
+        }
+
+        case X86::JNLE_JG: {
+            if(!(XOR(state.flags & X86::CpuState::FLAGS::SF, state.flags & X86::CpuState::FLAGS::OF) || (state.flags & X86::CpuState::FLAGS::ZF))) { 
+                FUNCS::executeJmp(&state, decOp.operand1.displacement);
+            }
+            break;
+        }
+
+        case X86::JNB_JAE: {
+            if(!(state.flags & X86::CpuState::FLAGS::CF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JNBE_JA: {
+            if(!(state.flags & X86::CpuState::FLAGS::CF || state.flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JNP_JPO: {
+            if(!(state.flags & X86::CpuState::FLAGS::PF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JNO: {
+            if(!(state.flags & X86::CpuState::FLAGS::OF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JNS: {
+            if(!(state.flags & X86::CpuState::FLAGS::SF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::LOOP: {
+            FUNCS::executeJmp(&state, decOp.operand1.displacement);
+            break;
+        }
+
+        case X86::LOOPZ_LOOPE: {
+            if(state.flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::LOOPNZ_LOOPNE: {
+            if(!(state.flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
+        case X86::JCXZ: {
+            if(state.regs.cx == 0) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            break;
+        }
+
         default: {
             printf("ERROR: Executing op %s not yet implemented!", X86::opName(decOp.op));
         }
@@ -444,7 +557,15 @@ void printFinalRegisters(X86::CpuState state) {
         ";\tbp: 0x%04x (%d)\n"
         ";\tsi: 0x%04x (%d)\n"
         ";\tdi: 0x%04x (%d)\n"
-        "flags: ",
+        ";\n"
+        ";\tcs: 0x%04x (%d)\n"
+        ";\tds: 0x%04x (%d)\n"
+        ";\tss: 0x%04x (%d)\n"
+        ";\tes: 0x%04x (%d)\n;"
+        "\n"
+        ";\tip: 0x%04x (%d)\n"
+        ";\n"
+        ";\tflags: ",
         state.regs.ax, state.regs.ax,
         state.regs.bx, state.regs.bx,
         state.regs.cx, state.regs.cx,
@@ -452,7 +573,12 @@ void printFinalRegisters(X86::CpuState state) {
         state.regs.sp, state.regs.sp,
         state.regs.bp, state.regs.bp,
         state.regs.si, state.regs.si,
-        state.regs.di, state.regs.di);
+        state.regs.di, state.regs.di,
+        state.regs.cs, state.regs.cs,
+        state.regs.ds, state.regs.ds,
+        state.regs.ss, state.regs.ss,
+        state.regs.es, state.regs.es,
+        state.regs.ip, state.regs.ip);
     X86::CpuState::printFlags(state.flags);
 }
 
@@ -482,9 +608,13 @@ void decode8086Binary(const char* asmFilePath, bool execute) {
     while(currentByte < lastByte) {
         X86::DecodedOp op = decodeOp(currentByte); 
         printOp(op);
-        if(execute) { cpuState = executeOp(op, cpuState); }
+        if(execute) { 
+            cpuState = executeOp(op, cpuState);
+            currentByte = inputFileBuffer + cpuState.regs.ip;
+        } else {
+            currentByte += op.sizeInBytes;
+        }
         printf("\n");
-        currentByte = op.nextByte;
     }
     if(execute) { printFinalRegisters(cpuState); }
     free(inputFileBuffer);
