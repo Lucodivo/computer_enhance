@@ -238,7 +238,7 @@ void printOp(X86::DecodedOp op) {
     }
 }
 
-X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
+void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
 
     struct FUNCS {
         static void printRegChange(X86::CpuState *state, X86::REG reg, u16 oldVal) {
@@ -291,15 +291,50 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
             printFlagsChange(oldFlags, state->flags);
         }
 
-        static void executeMov(X86::CpuState* state, X86::REG reg, u16 val) {
-            if(regIsWide(reg)) {
-                u16 prevVal = state->regVal(reg);
-                state->regSet(reg, val);
-                printRegChange(state, reg, prevVal);
-            } else {
-                u8 prevVal = (u8)state->regVal(reg);
-                state->regSet(reg, (u8)val);
-                printRegChange(state, reg, prevVal);
+        static u32 calcMemAddr(X86::CpuState* state, X86::Operand memOp) {
+            assert(memOp.isMem());
+            u32 memAddr = memOp.displacement;
+            if(memOp.flags | X86::OPERAND_MEM_REG1) {
+                memAddr += state->regVal(memOp.memReg1);
+                if(memOp.flags | X86::OPERAND_MEM_REG2) {
+                    memAddr += state->regVal(memOp.memReg2);
+                }
+            }
+            return memAddr;
+        }
+
+        static void executeMov(X86::CpuState* state, X86::Operand dest, X86::Operand src) {
+            if(dest.isReg()) {
+                if(src.isReg()) {
+                    state->regSet(dest.reg, state->regVal(src.reg));
+                } else if(src.isMem()) {
+                    bool wide = regIsWide(dest.reg);
+                    u32 memAddr = calcMemAddr(state, src);
+                    state->regSet(dest.reg, wide ? state->mem16(memAddr) : state->mem[memAddr]);
+                } else if(src.isImm()) {
+                    state->regSet(dest.reg, src.immediate);
+                }
+            } else if(dest.isMem()) {
+                u32 memAddr = calcMemAddr(state, dest);
+
+                if(src.isReg()) {
+                    bool wide = regIsWide(src.reg);
+                    u16 val = state->regVal(src.reg);
+                    if(wide) {
+                        state->memSet16(memAddr, val);
+                    } else {
+                        state->mem[memAddr] = (u8)val;
+                    }
+                } else if(src.isImm()) {
+                    bool wide = src.flags & X86::OPERAND_IMM_16BITS;
+                    if(wide) {
+                        state->memSet16(memAddr, src.immediate);
+                    } else {
+                        state->mem[memAddr] = (u8)src.immediate;
+                    }
+                } else if(src.isMem()) {
+                    assert(false && "ERROR: Mem to mem mov is not a part of the x86 ISA.");
+                }
             }
         }
 
@@ -308,41 +343,49 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
         }
     };
 
-    state.regs.ip += decOp.sizeInBytes;
+    state->regs.ip += decOp.sizeInBytes;
 
     printf(" ; ");
 
     // Empty switch statement for all op.op cases
     switch(decOp.op) {
         case X86::MOV_IMM_TO_REG: {
-            FUNCS::executeMov(&state, decOp.operand1.reg, decOp.operand2.immediate);
+            FUNCS::executeMov(state, decOp.operand1, decOp.operand2);
             break;
         }
+
         case X86::MOV_RM_TO_FROM_REG: {
-            if(decOp.operand1.isReg()) {
-                if(decOp.operand2.isReg()) {
-                    FUNCS::executeMov(&state, decOp.operand1.reg, state.regVal(decOp.operand2.reg));
-                } else if(decOp.operand2.isMem()) {
-                    // TODO
-                    printf("ERROR: Unimplemented mov to reg from mem");
-                } else if(decOp.operand2.isImm()) {
-                    FUNCS::executeMov(&state, decOp.operand1.reg, decOp.operand2.immediate);
-                }
-            } else { // mov to mem
-                // TODO
-                printf("ERROR: Unimplemented mov to mem");
-            }
+            assert(decOp.operand1.isReg());
+            FUNCS::executeMov(state, decOp.operand1, decOp.operand2);
+            break;
+        }
+
+
+        case X86::MOV_IMM_TO_RM: {
+            assert(decOp.operand1.isMem());
+            assert(decOp.operand2.isImm());
+            FUNCS::executeMov(state, decOp.operand1, decOp.operand2);
+            break;
+        }
+
+        case X86::MOV_MEM_TO_ACC: {
+            FUNCS::executeMov(state, decOp.operand1, decOp.operand2);
+            break;
+        }
+
+        case X86::MOV_ACC_TO_MEM: {
+            FUNCS::executeMov(state, decOp.operand1, decOp.operand2);
             break;
         }
 
         case X86::ADD_IMM_TO_ACC: {
-            FUNCS::executeAdd(&state, decOp.operand1.reg, decOp.operand2.immediate);
+            FUNCS::executeAdd(state, decOp.operand1.reg, decOp.operand2.immediate);
             break;
         }
 
         case X86::ADD_IMM_TO_RM: {
             if(decOp.operand1.isReg()) {
-                FUNCS::executeAdd(&state, decOp.operand1.reg, decOp.operand2.immediate);
+                FUNCS::executeAdd(state, decOp.operand1.reg, decOp.operand2.immediate);
             } else if(decOp.operand1.isMem()) {
                 // TODO
                 printf("ERROR: Unimplemented add to mem from imm");
@@ -351,13 +394,13 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
         }
 
         case X86::SUB_IMM_FROM_ACC: {
-            FUNCS::executeSub(&state, decOp.operand1.reg, decOp.operand2.immediate);
+            FUNCS::executeSub(state, decOp.operand1.reg, decOp.operand2.immediate);
             break;
         }
 
         case X86::SUB_IMM_FROM_RM:{
             if(decOp.operand1.isReg()) {
-                FUNCS::executeSub(&state, decOp.operand1.reg, decOp.operand2.immediate);
+                FUNCS::executeSub(state, decOp.operand1.reg, decOp.operand2.immediate);
             } else if(decOp.operand1.isMem()) {
                 printf("ERROR: Unimplemented sub to mem from imm");
             }
@@ -367,12 +410,12 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
         case X86::SUB_RM_TO_FROM_REG: {
             if(decOp.operand1.isReg()) {
                 if(decOp.operand2.isReg()) {
-                    FUNCS::executeSub(&state, decOp.operand1.reg, state.regVal(decOp.operand2.reg));
+                    FUNCS::executeSub(state, decOp.operand1.reg, state->regVal(decOp.operand2.reg));
                 } else if(decOp.operand2.isMem()) {
                     // TODO
                     printf("ERROR: Unimplemented sub [reg - mem]");
                 } else if(decOp.operand2.isImm()) {
-                    FUNCS::executeSub(&state, decOp.operand1.reg, decOp.operand2.immediate);
+                    FUNCS::executeSub(state, decOp.operand1.reg, decOp.operand2.immediate);
                 }
             } else if(decOp.operand1.isMem()) {
                 // TODO
@@ -382,14 +425,14 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
         }
 
         case X86::CMP_IMM_AND_ACC: {
-            FUNCS::executeCmp(&state, state.regVal(decOp.operand1.reg), decOp.operand2.immediate);
+            FUNCS::executeCmp(state, state->regVal(decOp.operand1.reg), decOp.operand2.immediate);
             break;
         }
 
         case X86::CMP_IMM_AND_RM: {
             u16 val1{}, val2{};
             if(decOp.operand1.isReg()) {
-                val1 = state.regVal(decOp.operand1.reg);
+                val1 = state->regVal(decOp.operand1.reg);
             } else if(decOp.operand1.isMem()) {
                 // TODO
                 val1 = 1 << 14;
@@ -399,7 +442,7 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
             }
 
             if(decOp.operand2.isReg()) {
-                val2 = state.regVal(decOp.operand2.reg);
+                val2 = state->regVal(decOp.operand2.reg);
             } else if(decOp.operand2.isMem()) {
                 // TODO
                 val2 = 1 << 14;
@@ -408,14 +451,14 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
                 val2 = decOp.operand2.immediate;
             }
 
-            FUNCS::executeCmp(&state, val1, val2);
+            FUNCS::executeCmp(state, val1, val2);
             break;
         }
 
         case X86::CMP_RM_AND_REG: {
             u16 val1{}, val2{};
             if(decOp.operand1.isReg()) {
-                val1 = state.regVal(decOp.operand1.reg);
+                val1 = state->regVal(decOp.operand1.reg);
             } else if(decOp.operand1.isMem()) {
                 // TODO
                 val1 = 1 << 14;
@@ -423,118 +466,118 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
             }
 
             if(decOp.operand2.isReg()) {
-                val2 = state.regVal(decOp.operand2.reg);
+                val2 = state->regVal(decOp.operand2.reg);
             } else if(decOp.operand2.isMem()) {
                 // TODO
                 val2 = 1 << 14;
                 printf("ERROR: Unimplemented cmp with mem");
             }
 
-            FUNCS::executeCmp(&state, val1, val2);
+            FUNCS::executeCmp(state, val1, val2);
             break;
         }
 
         case X86::JE_JZ: {
-            if(state.flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(state->flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JL_JNGE: {
-            if(state.flags & X86::CpuState::FLAGS::SF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(state->flags & X86::CpuState::FLAGS::SF) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JLE_JNG: {
-            if(state.flags & (X86::CpuState::FLAGS::ZF | X86::CpuState::FLAGS::SF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(state->flags & (X86::CpuState::FLAGS::ZF | X86::CpuState::FLAGS::SF)) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JB_JNAE: {
-            if(state.flags & X86::CpuState::FLAGS::CF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(state->flags & X86::CpuState::FLAGS::CF) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JBE_JNA: {
-            if(state.flags & X86::CpuState::FLAGS::CF || state.flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(&state, decOp.operand1.displacement); }
+            if(state->flags & X86::CpuState::FLAGS::CF || state->flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(state, decOp.operand1.displacement); }
             break;
         }
 
         case X86::JP_JPE: {
-            if(state.flags & X86::CpuState::FLAGS::PF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(state->flags & X86::CpuState::FLAGS::PF) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JO: {
-            if(state.flags & X86::CpuState::FLAGS::OF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(state->flags & X86::CpuState::FLAGS::OF) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JS: {
-            if(state.flags & X86::CpuState::FLAGS::SF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(state->flags & X86::CpuState::FLAGS::SF) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JNE_JNZ: {
-            if(!(state.flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(!(state->flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JNL_JGE: {
-            if(XOR(state.flags & X86::CpuState::FLAGS::SF, state.flags & X86::CpuState::FLAGS::OF)) { 
-                FUNCS::executeJmp(&state, decOp.operand1.displacement);
+            if(XOR(state->flags & X86::CpuState::FLAGS::SF, state->flags & X86::CpuState::FLAGS::OF)) { 
+                FUNCS::executeJmp(state, decOp.operand1.displacement);
             }
             break;
         }
 
         case X86::JNLE_JG: {
-            if(!(XOR(state.flags & X86::CpuState::FLAGS::SF, state.flags & X86::CpuState::FLAGS::OF) || (state.flags & X86::CpuState::FLAGS::ZF))) { 
-                FUNCS::executeJmp(&state, decOp.operand1.displacement);
+            if(!(XOR(state->flags & X86::CpuState::FLAGS::SF, state->flags & X86::CpuState::FLAGS::OF) || (state->flags & X86::CpuState::FLAGS::ZF))) { 
+                FUNCS::executeJmp(state, decOp.operand1.displacement);
             }
             break;
         }
 
         case X86::JNB_JAE: {
-            if(!(state.flags & X86::CpuState::FLAGS::CF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(!(state->flags & X86::CpuState::FLAGS::CF)) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JNBE_JA: {
-            if(!(state.flags & X86::CpuState::FLAGS::CF || state.flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(!(state->flags & X86::CpuState::FLAGS::CF || state->flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JNP_JPO: {
-            if(!(state.flags & X86::CpuState::FLAGS::PF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(!(state->flags & X86::CpuState::FLAGS::PF)) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JNO: {
-            if(!(state.flags & X86::CpuState::FLAGS::OF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(!(state->flags & X86::CpuState::FLAGS::OF)) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JNS: {
-            if(!(state.flags & X86::CpuState::FLAGS::SF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(!(state->flags & X86::CpuState::FLAGS::SF)) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::LOOP: {
-            FUNCS::executeJmp(&state, decOp.operand1.displacement);
+            FUNCS::executeJmp(state, decOp.operand1.displacement);
             break;
         }
 
         case X86::LOOPZ_LOOPE: {
-            if(state.flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(state->flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::LOOPNZ_LOOPNE: {
-            if(!(state.flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(!(state->flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
         case X86::JCXZ: {
-            if(state.regs.cx == 0) { FUNCS::executeJmp(&state, decOp.operand1.displacement);}
+            if(state->regs.cx == 0) { FUNCS::executeJmp(state, decOp.operand1.displacement);}
             break;
         }
 
@@ -542,11 +585,9 @@ X86::CpuState executeOp(X86::DecodedOp decOp, X86::CpuState state) {
             printf("ERROR: Executing op %s not yet implemented!", X86::opName(decOp.op));
         }
     }
-
-    return state;
 }
 
-void printFinalRegisters(X86::CpuState state) {
+void printFinalRegisters(const X86::CpuState& state) {
     printf(
         "\n;Final registers:\n"
         ";\tax: 0x%04x (%d)\n"
@@ -602,20 +643,20 @@ void decode8086Binary(const char* asmFilePath, bool execute) {
 
     printf(OUTPUT_FILE_HEADER);
     
-    X86::CpuState cpuState{};
+    X86::CpuState* cpuState = new X86::CpuState{};
     u8* lastByte = inputFileBuffer + fileLen;
     u8* currentByte = inputFileBuffer;
     while(currentByte < lastByte) {
         X86::DecodedOp op = decodeOp(currentByte); 
         printOp(op);
         if(execute) { 
-            cpuState = executeOp(op, cpuState);
-            currentByte = inputFileBuffer + cpuState.regs.ip;
+            executeOp(op, cpuState);
+            currentByte = inputFileBuffer + cpuState->regs.ip;
         } else {
             currentByte += op.sizeInBytes;
         }
         printf("\n");
     }
-    if(execute) { printFinalRegisters(cpuState); }
+    if(execute) { printFinalRegisters(*cpuState); }
     free(inputFileBuffer);
 }

@@ -92,6 +92,7 @@ namespace X86 {
             u16 si;
             u16 di;
             
+            // TODO: Segment registers currently unimplemented
             u16 cs;
             u16 ds;
             u16 ss;
@@ -100,6 +101,7 @@ namespace X86 {
             u16 ip;
         } regs;
         u16 flags;
+        u8 mem[1024 * 1024]; // 1MB of memory. TODO: Since segment registers are not implemented, only 64KB of memory is accessible.
 
         u16 regVal(REG reg) {
             u8 offset = regEnumToOffset[reg];
@@ -117,6 +119,9 @@ namespace X86 {
                 *regPtr = (u8)val;
             }
         }
+
+        u16 mem16(u32 addr) { return *(u16*)&mem[addr]; }
+        void memSet16(u32 addr, u16 val) { *(u16*)&mem[addr] = val; }
 
         void clearFlags() { flags = 0; }
 
