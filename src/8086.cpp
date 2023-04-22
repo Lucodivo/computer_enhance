@@ -547,7 +547,13 @@ void printFinalRegisters(const X86::CpuState& state) {
     X86::CpuState::printFlags(state.flags);
 }
 
-void decode8086Binary(const char* asmFilePath, bool execute) {
+void dumpMemory(const X86::CpuState& state) {
+    FILE* dumpFile = fopen("sim8086_dump.data", "wb");
+    fwrite(state.memory, sizeof(state.memory), 1, dumpFile);
+    fclose(dumpFile);
+}
+
+void decode8086Binary(const char* asmFilePath, DecodeOptions options) {
     long fileLen;
     X86::CpuState* cpuState = new X86::CpuState{};
 
@@ -572,7 +578,7 @@ void decode8086Binary(const char* asmFilePath, bool execute) {
     while(currentByte < lastByte) {
         X86::DecodedOp op = decodeOp(currentByte); 
         printOp(op);
-        if(execute) { 
+        if(options.execute) { 
             executeOp(op, cpuState);
             currentByte = cpuState->mem.code + cpuState->regs.ip;
         } else {
@@ -580,6 +586,7 @@ void decode8086Binary(const char* asmFilePath, bool execute) {
         }
         printf("\n");
     }
-    if(execute) { printFinalRegisters(*cpuState); }
+    if(options.execute) { printFinalRegisters(*cpuState); }
+    if(options.dump) { dumpMemory(*cpuState); }
     delete cpuState;
 }

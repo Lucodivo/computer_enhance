@@ -5,3 +5,5 @@
 /cmuratori/*
 /test*
 .vscode/*
+ignore.txt
+*.data

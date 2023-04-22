@@ -102,10 +102,10 @@ namespace X86 {
         } regs;
         u16 flags;
         union {
-            u8 memory[1024 * 1024]; // 1MB of memory. TODO: Since segment registers are not implemented, only 64KB of memory is accessible.
+            u8 memory[1024 * 64]; // 64KB of memory. TODO: Since segment registers are not implemented, only 64KB of memory is accessible.
             struct {
-                u8 code[1024 * 512];
-                u8 data[1024 * 512];
+                u8 code[1024 * 32];
+                u8 data[1024 * 32];
             } mem;
         };
 
@@ -516,3 +516,9 @@ namespace X86 {
     /* 1111 1111 */ {}, 
     };
 }
+
+struct DecodeOptions{
+    bool execute;
+    bool dump;
+};
+void decode8086Binary(const char* asmFilePath, DecodeOptions options);

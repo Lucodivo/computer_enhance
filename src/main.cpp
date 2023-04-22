@@ -2,19 +2,27 @@
 
 struct {
 	const char* exec = "-exec";
+	const char* dump = "-dump";
 } ConsoleArgs;
 
 int main(int argCount, char** args)
 {
-	if(argCount <= 1 || argCount > 3) {
-		printf("Error: Bad arguments.");
-		printf("Program usage: program.exe {-exec} {binary_asm_file}");
-		return -1;
+	u32 filePathArgIndex = argCount - 1;
+	char* programSystemPath = args[0];
+	char* asmFilePath = args[filePathArgIndex];
+	DecodeOptions options = {};
+
+	for(int i = 1; i < (argCount - 1); i++) {
+		if(strcmp(args[i], ConsoleArgs.exec) == 0) {
+			options.execute = true;
+		} else if(strcmp(args[i], ConsoleArgs.dump) == 0) {
+			options.dump = true;
+		} else {
+			printf("Error: Bad arguments.");
+			printf("Program usage: program.exe {-exec/-dump} {binary_asm_file}");
+			return -1;
+		}
 	}
 
-	char* programSystemPath = args[0];
-	bool execute = argCount == 2 ? false : strcmp(args[1], ConsoleArgs.exec) == 0;
-	char* asmFilePath = argCount == 2 ? args[1] : args[2];
-
-	decode8086Binary(asmFilePath, execute);
+	decode8086Binary(asmFilePath, options);
 }
