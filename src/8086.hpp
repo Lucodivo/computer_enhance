@@ -160,8 +160,8 @@ namespace X86 {
         RM_FLAGS_REG = 1 << 0,
         RM_FLAGS_REG1_EFF_ADDR = 1 << 1,
         RM_FLAGS_REG2_EFF_ADDR = 1 << 2,
-        RM_FLAGS_HAS_DISPLACE_8BIT = 1 << 3,
-        RM_FLAGS_HAS_DISPLACE_16BIT = 1 << 4
+        RM_FLAGS_DISPLACE_8BIT = 1 << 3,
+        RM_FLAGS_DISPLACE_16BIT = 1 << 4
     };
 
     enum OP_METADATA : u32 {
@@ -183,8 +183,8 @@ namespace X86 {
         OPERAND_MEM_REG1 = 1 << 1,
         OPERAND_MEM_REG2 = 1 << 2,
         OPERAND_DISPLACEMENT = 1 << 3,
-        OPERAND_IMM_8BITS = 1 << 4,
-        OPERAND_IMM_16BITS = 1 << 5,
+        OPERAND_IMM = 1 << 4,
+        OPERAND_WIDE = 1 << 5,
         OPERAND_NO_OPERAND = 1 << 6,
     };
 
@@ -196,6 +196,7 @@ namespace X86 {
         REG memReg2;
         u8 flags;
         bool isReg(){ return flags & RM_FLAGS_REG; }
+        bool isMem(){ return flags & (RM_FLAGS_REG1_EFF_ADDR | RM_FLAGS_DISPLACE_8BIT | RM_FLAGS_DISPLACE_16BIT); }
     };
 
     struct Operand {
@@ -211,7 +212,7 @@ namespace X86 {
         };
         u8 flags;
         bool isMem() { return checkAnyFlags(flags, OPERAND_MEM_REG1 | OPERAND_DISPLACEMENT); }
-        bool isImm() { return checkAnyFlags(flags, OPERAND_IMM_8BITS | OPERAND_IMM_16BITS); }
+        bool isImm() { return flags & OPERAND_IMM; }
         bool isReg() { return flags & OPERAND_REG; }
     };
 
@@ -223,8 +224,8 @@ namespace X86 {
 
     struct DecodedOp {
         OP op;
-        Operand operand1;
-        Operand operand2;
+        Operand operandDst;
+        Operand operandSrc;
         u8 sizeInBytes;
     };
 
