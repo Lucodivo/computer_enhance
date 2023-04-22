@@ -101,8 +101,12 @@ namespace X86 {
             u16 ip;
         } regs;
         u16 flags;
+
+        // NOTE: Memory is not properly simulated and is currently just 64KB partitions in half for code and data.
+        // TODO: Since segment registers are not implemented, only 64KB of memory is accessible.
+        // TODO: Segments will then define where code sits and where data sits.
         union {
-            u8 memory[1024 * 64]; // 64KB of memory. TODO: Since segment registers are not implemented, only 64KB of memory is accessible.
+            u8 memory[1024 * 64];
             struct {
                 u8 code[1024 * 32];
                 u8 data[1024 * 32];

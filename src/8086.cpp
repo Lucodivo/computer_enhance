@@ -362,6 +362,11 @@ void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
         static void executeJmp(X86::CpuState* state, s16 displacement) {
             state->regs.ip += displacement;
         }
+
+        static void executeDec(X86::CpuState* state, X86::REG reg) {
+            u16 val = state->regVal(reg);
+            state->regSet(reg, val - 1);
+        }
     };
 
     state->regs.ip += decOp.sizeInBytes;
@@ -486,17 +491,24 @@ void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
         }
 
         case X86::LOOP: {
-            FUNCS::executeJmp(state, decOp.operandDst.displacement);
+            FUNCS::executeDec(state, X86::CX);
+            if(state->regs.cx != 0) { FUNCS::executeJmp(state, decOp.operandDst.displacement);}
             break;
         }
 
         case X86::LOOPZ_LOOPE: {
-            if(state->flags & X86::CpuState::FLAGS::ZF) { FUNCS::executeJmp(state, decOp.operandDst.displacement);}
+            FUNCS::executeDec(state, X86::CX);
+            if(state->regs.cx == 0 && state->flags & X86::CpuState::FLAGS::ZF) { 
+                FUNCS::executeJmp(state, decOp.operandDst.displacement);
+            }
             break;
         }
 
         case X86::LOOPNZ_LOOPNE: {
-            if(!(state->flags & X86::CpuState::FLAGS::ZF)) { FUNCS::executeJmp(state, decOp.operandDst.displacement);}
+            FUNCS::executeDec(state, X86::CX);
+            if(state->regs.cx != 0 && !(state->flags & X86::CpuState::FLAGS::ZF)) { 
+                FUNCS::executeJmp(state, decOp.operandDst.displacement);
+            }
             break;
         }
 
