@@ -101,7 +101,13 @@ namespace X86 {
             u16 ip;
         } regs;
         u16 flags;
-        u8 mem[1024 * 1024]; // 1MB of memory. TODO: Since segment registers are not implemented, only 64KB of memory is accessible.
+        union {
+            u8 memory[1024 * 1024]; // 1MB of memory. TODO: Since segment registers are not implemented, only 64KB of memory is accessible.
+            struct {
+                u8 code[1024 * 512];
+                u8 data[1024 * 512];
+            } mem;
+        };
 
         u16 regVal(REG reg) {
             u8 offset = regEnumToOffset[reg];
@@ -120,8 +126,8 @@ namespace X86 {
             }
         }
 
-        u16 mem16(u32 addr) { return *(u16*)&mem[addr]; }
-        void memSet16(u32 addr, u16 val) { *(u16*)&mem[addr] = val; }
+        u16 memDataVal16(u32 addr) { return *(u16*)&mem.data[addr]; }
+        void memDataSet16(u32 addr, u16 val) { *(u16*)&mem.data[addr] = val; }
 
         void clearFlags() { flags = 0; }
 

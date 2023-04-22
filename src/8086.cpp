@@ -272,9 +272,9 @@ void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
             } else if(operand.isMem()) {
                 u32 memAddr = calcMemAddr(state, operand);
                 if(operand.flags & X86::OPERAND_WIDE) {
-                    return state->mem16(memAddr);
+                    return state->memDataVal16(memAddr);
                 } else {
-                    return state->mem[memAddr];
+                    return state->mem.data[memAddr];
                 }
             } else {
                 assert(operand.isImm());
@@ -333,7 +333,7 @@ void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
                     state->regSet(dest.reg, state->regVal(src.reg));
                 } else if(src.isMem()) {
                     u32 memAddr = calcMemAddr(state, src);
-                    state->regSet(dest.reg, wide ? state->mem16(memAddr) : state->mem[memAddr]);
+                    state->regSet(dest.reg, wide ? state->memDataVal16(memAddr) : state->mem.data[memAddr]);
                 } else if(src.isImm()) {
                     state->regSet(dest.reg, src.immediate);
                 }
@@ -343,15 +343,15 @@ void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
                 if(src.isReg()) {
                     u16 val = state->regVal(src.reg);
                     if(wide) {
-                        state->memSet16(memAddr, val);
+                        state->memDataSet16(memAddr, val);
                     } else {
-                        state->mem[memAddr] = (u8)val;
+                        state->mem.data[memAddr] = (u8)val;
                     }
                 } else if(src.isImm()) {
                     if(wide) {
-                        state->memSet16(memAddr, src.immediate);
+                        state->memDataSet16(memAddr, src.immediate);
                     } else {
-                        state->mem[memAddr] = (u8)src.immediate;
+                        state->mem.data[memAddr] = (u8)src.immediate;
                     }
                 } else if(src.isMem()) {
                     assert(false && "ERROR: Mem to mem mov is not a part of the x86 ISA.");
@@ -548,8 +548,8 @@ void printFinalRegisters(const X86::CpuState& state) {
 }
 
 void decode8086Binary(const char* asmFilePath, bool execute) {
-    u8* inputFileBuffer;
     long fileLen;
+    X86::CpuState* cpuState = new X86::CpuState{};
 
     FILE* inputFile = fopen(asmFilePath, "rb");
     if(!inputFile) {
@@ -560,27 +560,26 @@ void decode8086Binary(const char* asmFilePath, bool execute) {
     fileLen = ftell(inputFile);
     rewind(inputFile);
 
-    inputFileBuffer = (u8 *)malloc(fileLen * sizeof(u8));
-    fread(inputFileBuffer, fileLen, 1, inputFile);
+    assert(fileLen < sizeof(cpuState->mem.code));
+    fread(cpuState->mem.code, fileLen, 1, inputFile);
     fclose(inputFile);
     inputFile = nullptr;
 
     printf(OUTPUT_FILE_HEADER);
     
-    X86::CpuState* cpuState = new X86::CpuState{};
-    u8* lastByte = inputFileBuffer + fileLen;
-    u8* currentByte = inputFileBuffer;
+    u8* lastByte = cpuState->mem.code + fileLen;
+    u8* currentByte = cpuState->mem.code;
     while(currentByte < lastByte) {
         X86::DecodedOp op = decodeOp(currentByte); 
         printOp(op);
         if(execute) { 
             executeOp(op, cpuState);
-            currentByte = inputFileBuffer + cpuState->regs.ip;
+            currentByte = cpuState->mem.code + cpuState->regs.ip;
         } else {
             currentByte += op.sizeInBytes;
         }
         printf("\n");
     }
     if(execute) { printFinalRegisters(*cpuState); }
-    free(inputFileBuffer);
+    delete cpuState;
 }
