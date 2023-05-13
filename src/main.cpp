@@ -3,6 +3,7 @@
 struct {
 	const char* exec = "-exec";
 	const char* dump = "-dump";
+	const char* clocks = "-clocks";
 } ConsoleArgs;
 
 int main(int argCount, char** args)
@@ -17,9 +18,11 @@ int main(int argCount, char** args)
 			options.execute = true;
 		} else if(strcmp(args[i], ConsoleArgs.dump) == 0) {
 			options.dump = true;
+		} else if(strcmp(args[i], ConsoleArgs.clocks) == 0) {
+			options.clocks = true;
 		} else {
 			printf("Error: Bad arguments.");
-			printf("Program usage: program.exe {-exec/-dump} {binary_asm_file}");
+			printf("Program usage: program.exe {-exec/-dump/-clocks} {binary_asm_file}");
 			return -1;
 		}
 	}

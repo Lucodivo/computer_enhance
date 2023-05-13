@@ -35,7 +35,7 @@ typedef s32 b32;
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 
 // Out is used to label out function parameters
-#define Out
+#define OUT
 
 #define InvalidCodePath assert(!"InvalidCodePath");
 

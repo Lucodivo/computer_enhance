@@ -101,6 +101,7 @@ namespace X86 {
             u16 ip;
         } regs;
         u16 flags;
+        u32 clock;
 
         // NOTE: Memory is not properly simulated and is currently just 64KB partitions in half for code and data.
         // TODO: Since segment registers are not implemented, only 64KB of memory is accessible.
@@ -221,9 +222,9 @@ namespace X86 {
             s16 immediate;
         };
         u8 flags;
-        bool isMem() { return checkAnyFlags(flags, OPERAND_MEM_REG1 | OPERAND_DISPLACEMENT); }
-        bool isImm() { return flags & OPERAND_IMM; }
-        bool isReg() { return flags & OPERAND_REG; }
+        bool isMem() const { return checkAnyFlags(flags, OPERAND_MEM_REG1 | OPERAND_DISPLACEMENT); }
+        bool isImm() const { return flags & OPERAND_IMM; }
+        bool isReg() const { return flags & OPERAND_REG; }
     };
 
     struct OpMetadata { // NOTE: member order matters and is depended on in initializations
@@ -524,5 +525,6 @@ namespace X86 {
 struct DecodeOptions{
     bool execute;
     bool dump;
+    bool clocks;
 };
 void decode8086Binary(const char* asmFilePath, DecodeOptions options);

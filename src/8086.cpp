@@ -144,7 +144,9 @@ X86::DecodedOp decodeOp(u8* bytes) {
         } else {
             assert(regMem.isMem());
 
-            if(regMem.flags & X86::RM_FLAGS_REG1_EFF_ADDR) { // mem = [reg + ?]
+            bool baseAddrPresent = regMem.flags & X86::RM_FLAGS_REG1_EFF_ADDR;
+            
+            if(baseAddrPresent) { // mem = [reg + ?]
                 rmOperand->memReg1 = regMem.memReg1;
                 rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_MEM_REG1);
             }
@@ -155,11 +157,17 @@ X86::DecodedOp decodeOp(u8* bytes) {
             }
 
             if(regMem.flags & X86::RM_FLAGS_DISPLACE_8BIT) {
-                rmOperand->displacement = *(s8*)&bytes[bytesRead++];
-                rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
+                s8 displacement = *(s8*)&bytes[bytesRead++];
+                if(displacement != 0 || !baseAddrPresent) { // 0 displacement to base address is meaningless
+                    rmOperand->displacement = displacement;
+                    rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
+                }
             } else if(regMem.flags & X86::RM_FLAGS_DISPLACE_16BIT) {
-                rmOperand->displacement = *(s16*)&bytes[bytesRead]; bytesRead += 2;
-                rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
+                s16 displacement = *(s16*)&bytes[bytesRead]; bytesRead += 2;
+                if(displacement != 0 || !baseAddrPresent) { // 0 displacement to base address is meaningless
+                    rmOperand->displacement = displacement;
+                    rmOperand->flags = setFlags(rmOperand->flags, X86::OPERAND_DISPLACEMENT);
+                }
             }
         }
     }
@@ -190,6 +198,25 @@ X86::DecodedOp decodeOp(u8* bytes) {
     result.operandDst = dstOperand;
     result.operandSrc = srcOperand;
     result.sizeInBytes = bytesRead;
+    return result;
+}
+
+u32 cyclesOp(X86::DecodedOp op) {
+    u32 result = 0;
+    if(op.op > X86::MOV__START && op.op < X86::MOV__END){
+        
+    } else if(op.op > X86::ADD__START && op.op < X86::ADD__END) {
+
+    } else if(op.op > X86::SUB__START && op.op < X86::SUB__END) {
+
+    } else if(op.op > X86::CMP__START && op.op < X86::CMP__END) {
+
+    } else if(op.op > X86::JMP__START && op.op < X86::JMP__END) {
+
+    } else {
+        assert(false && "ERROR: Unsupported op, cycles unknown");
+    }
+
     return result;
 }
 
@@ -238,7 +265,6 @@ void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
             const char* regChangeFmtStr = "%s:0x%04x->0x%04x";
             u16 newVal = state->regVal(reg);
             printf(regChangeFmtStr, regName(reg), oldVal, newVal);
-            printf(" ip:0x%04x", state->regs.ip);
         }
 
         static void printFlagsChange(u16 oldFlags, u16 newFlags) {
@@ -288,19 +314,33 @@ void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
 
             bool wide = dest.flags & X86::OPERAND_WIDE;
 
-            assert(dest.isReg());
+            assert(dest.isReg() || dest.isMem());
 
-            if(wide) {
-                u16 prevVal = state->regVal(dest.reg);
-                u16 newVal = prevVal + val;
-                state->regSet(dest.reg, newVal);
-                printRegChange(state, dest.reg, prevVal);
-            } else {
-                u8 prevVal = (u8)state->regVal(dest.reg);
-                u8 newVal = prevVal + (u8)val;
-                state->regSet(dest.reg, newVal);
-                printRegChange(state, dest.reg, prevVal);
+            if(dest.isReg()) {
+                if(wide) {
+                    u16 prevVal = state->regVal(dest.reg);
+                    u16 newVal = prevVal + val;
+                    state->regSet(dest.reg, newVal);
+                    printRegChange(state, dest.reg, prevVal);
+                } else {
+                    u8 prevVal = (u8)state->regVal(dest.reg);
+                    u8 newVal = prevVal + (u8)val;
+                    state->regSet(dest.reg, newVal);
+                    printRegChange(state, dest.reg, prevVal);
+                }
+            } else if(dest.isMem()) {
+                u32 memAddr = calcMemAddr(state, dest);
+                if(wide) {
+                    u16 prevVal = state->memDataVal16(memAddr);
+                    u16 newVal = prevVal + val;
+                    state->memDataSet16(memAddr, newVal);
+                } else {
+                    u8 prevVal = state->mem.data[memAddr];
+                    u8 newVal = prevVal + (u8)val;
+                    state->mem.data[memAddr] = newVal;
+                }
             }
+
 
             updateSZPFlagsRegister(state, state->regVal(dest.reg));
             printFlagsChange(oldFlags, state->flags);
@@ -327,6 +367,7 @@ void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
         }
 
         static void executeMov(X86::CpuState* state, X86::Operand dest, X86::Operand src) {
+            // TODO: Print out what is going on
             bool wide = dest.flags & X86::OPERAND_WIDE;
             if(dest.isReg()) {
                 if(src.isReg()) {
@@ -370,8 +411,6 @@ void executeOp(X86::DecodedOp decOp, X86::CpuState* state) {
     };
 
     state->regs.ip += decOp.sizeInBytes;
-
-    printf(" ; ");
 
     // Empty switch statement for all op.op cases
     
@@ -565,6 +604,84 @@ void dumpMemory(const X86::CpuState& state) {
     fclose(dumpFile);
 }
 
+u32 calcEffAddrTime(const X86::DecodedOp& op) {
+    u32 result = 0;
+
+    assert(op.operandSrc.isMem() || op.operandDst.isMem());
+
+    // tack on effective address calculation costs
+    const X86::Operand& memOp = op.operandSrc.isMem() ? op.operandSrc : op.operandDst;
+    bool disp = memOp.flags & X86::OPERAND_DISPLACEMENT;
+    bool base = memOp.flags & X86::OPERAND_MEM_REG1;
+    bool index = memOp.flags & X86::OPERAND_MEM_REG2;
+
+    if(base) {
+        if(index) {
+            if(disp) { result = 11; } // base + index + disp 
+            else { result = 7; } // base + index
+
+            // Some base/index pairings are slower than others
+            if((memOp.memReg1 == X86::BP && memOp.memReg2 == X86::SI)|| 
+                    (memOp.memReg1 == X86::BX && memOp.memReg2 == X86::DI)) {
+                ++result;
+            }
+        } 
+        else if(disp) { result = 9; } // base + disp 
+        else { result = 5; } // base
+    } else if(disp) { result = 6; } // disp
+
+    return result;
+}
+
+u32 clocksOp(const X86::DecodedOp& op) {
+    u32 result = 0;
+
+    bool srcIsMem = op.operandSrc.isMem();
+    bool dstIsMem = op.operandDst.isMem();
+    bool srcIsReg = op.operandSrc.isReg();
+    bool dstIsReg = op.operandDst.isReg();
+    bool srcIsAcc = srcIsReg && (op.operandSrc.reg == X86::AX || op.operandSrc.reg == X86::AL);
+    bool dstIsAcc = dstIsReg && (op.operandDst.reg == X86::AX || op.operandDst.reg == X86::AL);
+    bool srcIsImm = op.operandSrc.isImm();
+
+    if(op.op > X86::MOV__START && op.op < X86::MOV__END){ // mov
+        if(dstIsReg) { // mov reg, []
+            if(dstIsAcc && srcIsMem) { result = 10; } // mov acc, mem
+            else if(srcIsReg) { result = 2; } // mov reg, reg
+            else if(srcIsMem) { result = 8 + calcEffAddrTime(op); } // mov reg, mem
+            else if(srcIsImm) { result = 4; } // mov reg, imm
+        } else if(dstIsMem) { // mov mem, []
+            if(srcIsReg) {
+                if(srcIsAcc) { result = 10; } // mov mem, acc
+                else { result = 9 + calcEffAddrTime(op); } // mov mem, reg
+            } else if(srcIsImm) { result = 10 + calcEffAddrTime(op); } // mov mem, imm
+        }
+    } else if((op.op > X86::ADD__START && op.op < X86::ADD__END) ||
+                (op.op > X86::SUB__START && op.op < X86::SUB__END)) { // add/sub
+        if(dstIsReg) { // add reg, []
+            if(srcIsImm) { result = 4; } // add reg, imm
+            else if(srcIsReg) { result = 3; } // add reg, reg 
+            else if(srcIsMem) { result = 9 + calcEffAddrTime(op); } // add reg, mem
+        } else if(dstIsMem) { // add mem, []
+            if(srcIsReg) { result = 16 + calcEffAddrTime(op); } // add mem, reg
+            else if(srcIsImm) { result = 17 + calcEffAddrTime(op); } // add mem, imm
+        }
+    } else if(op.op > X86::CMP__START && op.op < X86::CMP__END) { // cmp
+        if(dstIsReg) { // cmp reg, []
+            if(srcIsImm) { result = 4; } // cmp reg, imm
+            else if(srcIsReg) { result = 3; } // cmp reg, reg 
+            else if(srcIsMem) { result = 9 + calcEffAddrTime(op); } // cmp reg, mem
+        } else if(dstIsMem) { // cmp mem, []
+            if(srcIsReg) { result = 9 + calcEffAddrTime(op); } // cmp mem, reg
+            else if(srcIsImm) { result = 10 + calcEffAddrTime(op); } // cmp mem, imm
+        }
+    } else {
+        assert(false && "ERROR: Unsupported op, cycles unknown");
+    }
+
+    return result;
+}
+
 void decode8086Binary(const char* asmFilePath, DecodeOptions options) {
     long fileLen;
     X86::CpuState* cpuState = new X86::CpuState{};
@@ -590,12 +707,24 @@ void decode8086Binary(const char* asmFilePath, DecodeOptions options) {
     while(currentByte < lastByte) {
         X86::DecodedOp op = decodeOp(currentByte); 
         printOp(op);
-        if(options.execute) { 
-            executeOp(op, cpuState);
-            currentByte = cpuState->mem.code + cpuState->regs.ip;
-        } else {
-            currentByte += op.sizeInBytes;
+
+        if(options.execute || options.clocks) {
+            printf(" ; ");
+            
+            if(options.clocks) {
+                // Clocks: +4 = 4 | 
+                u32 clocksForOp = clocksOp(op);
+                cpuState->clock += clocksForOp;
+                printf("Clocks: +%d = %d", clocksForOp, cpuState->clock);
+                if(options.execute) { printf(" | "); }
+            }
+            if(options.execute) {
+                u32 prevIp = cpuState->regs.ip;
+                executeOp(op, cpuState);
+                printf(" ip:0x%x->0x%x", prevIp, cpuState->regs.ip);
+            }
         }
+        currentByte += op.sizeInBytes;
         printf("\n");
     }
     if(options.execute) { printFinalRegisters(*cpuState); }
