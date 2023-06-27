@@ -1,9 +1,21 @@
-/build/*
+# VS Code
+.vscode/
+
+# Casey's repo
+cmuratori/
+
+# Cargo
+debug/
+target/
+
+# build dirs
+build/
+
+# program output
+output/
+*dump.data
+*flex.json
+
+# etc
 8086_family_Users_Manual_1_.pdf
 9800722-03_The_8086_Family_Users_Manual_Oct79.pdf
-/output/*
-/cmuratori/*
-/test*
-.vscode/*
-ignore.txt
-*.data

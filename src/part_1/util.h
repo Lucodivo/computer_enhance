@@ -22,3 +22,12 @@ bool parity(const u16 val) {
     }
     return (ones % 2) == 0;
 }
+
+bool checkFileExists(const char* fileName) {
+    FILE* file = fopen(fileName, "r");
+    if(file) {
+        fclose(file);
+        return true;
+    }
+    return false;
+}
