@@ -2,13 +2,13 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufWriter;
-use std::time::Instant;
 
 use rand_casey::{seed, random_in_range, RandomSeries};
 use haversine::haversine;
 
 struct PointPair{x0: f64, y0: f64, x1: f64, y1: f64}
 
+// TODO: Output the seed that was used to generate the data?
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -22,35 +22,21 @@ fn main() {
     let num_pairs = args[3].parse::<u64>().unwrap();
 
     let point_pairs: Vec<PointPair>;
-    let gen_polar_coords_start_t = Instant::now();
     if gen_type == "uniform"  {
         point_pairs = gen_polar_coords_uniform(seed, num_pairs);
-        println!("Generating {} uniform coords: {}ms", num_pairs, gen_polar_coords_start_t.elapsed().as_millis());
     } else if gen_type == "cluster" { // cluster
         point_pairs = gen_polar_coords_cluster(seed, num_pairs);
-        println!("Generating {} cluster coords: {}ms", num_pairs, gen_polar_coords_start_t.elapsed().as_millis());
     } else {
         panic!("{}\ngeneration type value was {}", usage, gen_type);
     }
 
-    let coords_to_haversine_map_t = Instant::now();
     let haversine_vals: Vec<f64> = point_pairs.iter().map(|pp| haversine(pp.x0, pp.y0, pp.x1, pp.y1, None)).collect();
-    println!("{} coords to haversine map: {}ms", num_pairs, coords_to_haversine_map_t.elapsed().as_millis());
-    
     let num_pairs_f64 = num_pairs as f64;
-    
-    let haversine_mean_fold_t = Instant::now();
     let haversine_mean = haversine_vals.iter().fold(0.0, |acc, x| acc + (x / num_pairs_f64));
-    println!("{} haversine mean fold: {}ms", num_pairs, haversine_mean_fold_t.elapsed().as_millis());
-
-    let write_json_t = Instant::now();
+    
     write_point_pairs_json(&point_pairs).expect("Failed to write data to json file.");
-    println!("write {} points to json: {}ms", num_pairs, write_json_t.elapsed().as_millis());
-
-    let write_binary_t = Instant::now();
     write_haversine_binary_file(&haversine_vals, haversine_mean).expect("Failed to write data to binary file.");
-    println!("write {} points to binary file: {}ms", num_pairs, write_binary_t.elapsed().as_millis());
-
+    
     println!("\
         Method: {}\n\
         Random Seed: {}\n\

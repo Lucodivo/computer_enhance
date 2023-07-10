@@ -12,11 +12,3 @@ version = "0.1.0"
 dependencies = [
  "haversine",
 ]
-
-[[package]]
-name = "part_2"
-version = "0.1.0"
-dependencies = [
- "haversine",
- "json_parser",
-]
