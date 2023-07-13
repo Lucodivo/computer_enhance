@@ -1,197 +1,195 @@
-//use std::fs;
 use std::io::{Result, Error, ErrorKind::InvalidData};
 
 #[derive(PartialEq, Debug)]
-pub enum Value<'a> {
-    Collection{ values: JsonCollection<'a> },
-    Key(&'a str),
+pub enum JsonValue<'a> {
+    Object{ key_val_pairs: Vec<(&'a str, JsonValue<'a>)> }, // Note: "Keys" are not unique within a json object :(
+    Array{ elements: Vec<JsonValue<'a>> },
     String(&'a str),
-    Number(f32),
+    Number(f64),
     Boolean(bool),
     Null,
 }
 
-#[derive(PartialEq, Debug)]
-pub struct JsonCollection<'a> {
-    elements: Vec<Value<'a>>,
-    key_val_pairs: bool,
+enum JsonToken<'a> {
+    ObjectStart,
+    ObjectTerminate,
+    ArrayStart,
+    ArrayTerminate,
+    String(&'a str),
+    Number(f64),
+    Boolean(bool),
+    Null
 }
 
-// TODO: Can't return a reference to json string that will go out of scope
-// pub fn parse_json_file(json_filename: &str) -> Result<Vec<Value>> {
-//     let json = fs::read_to_string(json_filename)?;
-//     parse_json_str(&json)
-// }
-
-fn parse_json_collection<'a>(json_str: &'a str, json_bytes: &'a [u8], index: usize, key_val_pairs: bool) -> Result<(Value<'a>, usize)> {
-    let mut collection = JsonCollection{ elements: Vec::new(), key_val_pairs: key_val_pairs };
+pub fn parse_json_str<'a>(json_str: &'a str) -> Result<JsonValue<'a>> {
+    let json_bytes = json_str.as_bytes();
     
-    let mut i = index;
-    while i < json_bytes.len() {
-        match json_bytes[i] {
-            b'{' => {
-                i += 1;
-                match parse_json_collection(json_str, json_bytes, i, true) {
-                    Ok((value, new_i)) => {
-                        collection.elements.push(value);
-                        i = new_i;
+    let mut index = 0;
+    match parse_token(json_str, &json_bytes, &mut index) {
+        Ok(JsonToken::ObjectStart) => { return Ok(parse_json_object(json_str, &json_bytes, &mut index)?); },
+        Ok(JsonToken::ArrayStart) => { return Ok(parse_json_array(json_str, &json_bytes, &mut index)?); },
+        Ok(_) => { return Err(Error::new(InvalidData, "ERROR: Json must have an object or array as the root. Nothing may exist but whitespace after the root.")); },
+        Err(e) => { return Err(e); }
+    }
+}
+
+fn parse_json_object<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
+    let mut members = Vec::<(&'a str, JsonValue<'a>)>::new();
+
+    let mut object_open = true;
+    while object_open {
+        let key_token = parse_token(json_str, json_bytes, advancing_index)?; // NOTE: does this create a local i? or does it modify the i in the parent scope?
+
+        match key_token {
+            JsonToken::String(key_str) => {
+                let value_token = parse_token(json_str, json_bytes, advancing_index)?; 
+                match value_token {
+                    JsonToken::ObjectStart => { 
+                        let object_value = parse_json_object(json_str, json_bytes, advancing_index)?;
+                        members.push((key_str, object_value));
                     },
-                    Err(e) => { return Err(e); }
+                    JsonToken::ArrayStart => {
+                        let array_value = parse_json_array(json_str, json_bytes, advancing_index)?;
+                        members.push((key_str, array_value));
+                    },
+                    JsonToken::String(s) => { members.push((key_str, JsonValue::String(s))); },
+                    JsonToken::Number(n) => { members.push((key_str, JsonValue::Number(n))); },
+                    JsonToken::Boolean(b) => { members.push((key_str, JsonValue::Boolean(b))); },
+                    JsonToken::Null => { members.push((key_str, JsonValue::Null)); },
+                    JsonToken::ObjectTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected object member value but found end of object.")); },
+                    JsonToken::ArrayTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected object member value but found end of array.")); }
                 }
             },
-            b'}' => {
-                i += 1;
-                let is_object = key_val_pairs;
-                assert!(is_object);
-                let value = Value::Collection{ values: collection };
-                return Ok((value, i));
+            JsonToken::ObjectTerminate => {
+                object_open = false;
             },
-            b'[' => {
-                i += 1;
-                match parse_json_collection(json_str, json_bytes, i, false) {
-                    Ok((value, new_i)) => {
-                        collection.elements.push(value);
-                        i = new_i;
-                    },
-                    Err(e) => { return Err(e); }
-                }
+            _ => {
+                return Err(Error::new(InvalidData, "ERROR: Expected a string for a key in a json object."));
+            }
+        }
+    }
+
+    return Ok(JsonValue::Object{ key_val_pairs: members });
+}
+
+fn parse_json_array<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
+    let mut elements = Vec::<JsonValue<'a>>::new();
+
+    let mut array_open = true;
+    while array_open {
+        let element_token = parse_token(json_str, json_bytes, advancing_index)?; // NOTE: does this create a local i? or does it modify the i in the parent scope?
+        match element_token {
+            JsonToken::ObjectStart => { 
+                let object_value = parse_json_object(json_str, json_bytes, advancing_index)?;
+                elements.push(object_value);
             },
-            b']' => {
-                i += 1;
-                let is_array = !key_val_pairs;
-                assert!(is_array);
-                let value = Value::Collection{ values: collection };
-                return Ok((value, i));
+            JsonToken::ArrayStart => {
+                let array_value = parse_json_array(json_str, json_bytes, advancing_index)?;
+                elements.push(array_value);
             },
+            JsonToken::ArrayTerminate => { array_open = false; },
+            JsonToken::String(s) => { elements.push(JsonValue::String(s)); },
+            JsonToken::Number(n) => { elements.push(JsonValue::Number(n)); },
+            JsonToken::Boolean(b) => { elements.push(JsonValue::Boolean(b)); },
+            JsonToken::Null => { elements.push(JsonValue::Null); },
+            JsonToken::ObjectTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected array element but found end of an object.")); }
+        }
+    }
+
+    return Ok(JsonValue::Array{ elements: elements });
+}
+
+fn parse_token<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut usize) -> Result<JsonToken<'a>> {
+    
+    while *advancing_index < json_bytes.len() {
+        let byte = json_bytes[*advancing_index];
+        *advancing_index += 1;
+        match byte {
+            b'{' => { return Ok(JsonToken::ObjectStart);},
+            b'}' => { return Ok(JsonToken::ObjectTerminate); },
+            b'[' => { return Ok(JsonToken::ArrayStart); },
+            b']' => { return Ok(JsonToken::ArrayTerminate); },
             b'"' => {
-                let is_key = if key_val_pairs { 
-                    match collection.elements.last() {
-                        Some(Value::Key(_)) => false,
-                        _ => true
-                    }
-                } else { false };
-                
+                let start_str_index = *advancing_index;
                 let mut escaped = false;
-                let open_quote_index = i;
-                i += 1;
-                while i < json_bytes.len() {
-                    match json_bytes[i] {
+                while *advancing_index < json_bytes.len() {
+                    match json_bytes[*advancing_index] {
                         b'\\' => { escaped = true; }
-                        b'"' => {
-                            if !escaped {
-                                if is_key { 
-                                    collection.elements.push(Value::Key(&json_str[open_quote_index+1..i])); 
-                                } else { 
-                                    collection.elements.push(Value::String(&json_str[open_quote_index+1..i])); 
-                                }
-                                i += 1;
-                                break;
-                            } else { escaped = false; }
+                        b'"' if !escaped => {
+                            let end_quote_index = *advancing_index;
+                            *advancing_index += 1;
+                            return Ok(JsonToken::String(&json_str[start_str_index..end_quote_index]));
                         },
                         _ => { escaped = false; }
                     }
-                    i += 1;
+                    *advancing_index += 1;
                 }
+                return Err(Error::new(InvalidData, "ERROR: Json ended before the end of a string.")); 
             },
             b't' => {
-                if let Some(b'r') = json_bytes.get(i+1) {
-                    if let Some(b'u') = json_bytes.get(i+2) {
-                        if let Some(b'e') = json_bytes.get(i+3) {
-                            collection.elements.push(Value::Boolean(true));
-                            i += 3;
-                            continue;
+                if let Some(b'r') = json_bytes.get(*advancing_index) {
+                    if let Some(b'u') = json_bytes.get(*advancing_index+1) {
+                        if let Some(b'e') = json_bytes.get(*advancing_index+2) {
+                            *advancing_index += 3;
+                            return Ok(JsonToken::Boolean(true));
                         }
                     }
                 }
-                return Err(Error::new(InvalidData, "ERROR: Parsing invalid token 't'"));
+                return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 't'"));
             },
             b'f' => {
-                if let Some(b'a') = json_bytes.get(i+1) {
-                    if let Some(b'l') = json_bytes.get(i+2) {
-                        if let Some(b's') = json_bytes.get(i+3) {
-                            if let Some(b'e') = json_bytes.get(i+4) {
-                                collection.elements.push(Value::Boolean(false));
-                                i += 4;
-                                continue;
+                if let Some(b'a') = json_bytes.get(*advancing_index) {
+                    if let Some(b'l') = json_bytes.get(*advancing_index+1) {
+                        if let Some(b's') = json_bytes.get(*advancing_index+2) {
+                            if let Some(b'e') = json_bytes.get(*advancing_index+3) {
+                                *advancing_index += 4;
+                                return Ok(JsonToken::Boolean(true));
                             }
                         }
                     }
                 }
-                return Err(Error::new(InvalidData, "ERROR: Parsing invalid token 'f'"));
+                return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'f'"));
             },
             b'n' => {
-                if let Some(b'u') = json_bytes.get(i+1) {
-                    if let Some(b'l') = json_bytes.get(i+2) {
-                        if let Some(b'l') = json_bytes.get(i+3) {
-                            collection.elements.push(Value::Null);
-                            i += 3;
-                            continue;
+                if let Some(b'u') = json_bytes.get(*advancing_index) {
+                    if let Some(b'l') = json_bytes.get(*advancing_index+2) {
+                        if let Some(b'l') = json_bytes.get(*advancing_index+3) {
+                            *advancing_index += 4;
+                            return Ok(JsonToken::Null);
                         }
                     }
                 }
-                return Err(Error::new(InvalidData, "ERROR: Parsing invalid token 'n'"));
+                return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'n'"));
             },
-            b'0'..=b'9'|b'-'|b'+' => { // TODO: Numbers will need more validation. This is just grabbing characters in the value slot where a number should be.
-                let first_number_index = i;
-                i += 1;
-                while i < json_bytes.len() {
-                    match json_bytes[i] {
-                        b'0'..=b'9'|b'.'|b'+'|b'-'|b'e'|b'E' => {},
-                        _ => {
-                            collection.elements.push(Value::Number(json_str[first_number_index..i].parse::<f32>().unwrap()));
-                            break;
-                        }
+            b'0'..=b'9'|b'-'|b'+' => {
+                let first_number_index = *advancing_index - 1;
+                while *advancing_index < json_bytes.len() {
+                    match json_bytes[*advancing_index] {
+                        b'0'..=b'9'|b'.'|b'+'|b'-'|b'e'|b'E' => { *advancing_index += 1; },
+                        _ => { break; }
                     }
-                    i += 1;
                 }
+                if let Ok(number) = json_str[first_number_index..*advancing_index].parse::<f64>() {
+                    return Ok(JsonToken::Number(number));
+                }
+                return Err(Error::new(InvalidData, "ERROR: Invalid number."));
             },
-            b' ' | b'\t' | b'\n' | b'\r' | b','|b':' => { i += 1; }, // ignore whitespace, commas, colons
-            _ => { 
-                return Err(Error::new(InvalidData, "ERROR: Parsing invalid token")); 
-            } // anything else is invalid
+            b' ' | b'\t' | b'\n' | b'\r' | b','|b':' => {}, // ignore whitespace, commas, colons
+            _ => { // anything else is invalid
+                return Err(Error::new(InvalidData, "ERROR: Parsing invalid token.")); 
+            } 
         }
     }
 
     return Err(Error::new(InvalidData, "ERROR: End of object or array not found."));
 }
 
-#[allow(dead_code)] // TODO: Remove this
-fn parse_json_str<'a>(json_str: &'a str) -> Result<Value> {
-    let json_bytes = json_str.as_bytes();
-    
-    let mut root: Value = Value::Null;
-    let mut i = 0;    
-    while i < json_bytes.len() {
-        match json_bytes[i] {
-            b'{' => {
-                i += 1;
-                match parse_json_collection(json_str, &json_bytes, i, true) {
-                    Ok((value, new_i)) => {
-                        root = value;
-                        i = new_i;
-                    },
-                    Err(e) => { return Err(e); }
-                }
-            }
-            b'[' => {
-                i += 1;
-                match parse_json_collection(json_str, &json_bytes, i, false) {
-                    Ok((value, new_i)) => {
-                        root = value;
-                        i = new_i;
-                    },
-                    Err(e) => { return Err(e); }
-                }
-            }
-            b' ' | b'\t' | b'\n' | b'\r' => { i += 1; }, // ignore whitespace, commas, colons
-            _ => { 
-                return Err(Error::new(InvalidData, "ERROR: Json must have an object or array as the root. Nothing may exist but whitespace after the root.")); 
-            }
-        }
-    }
 
-    Ok(root)
-}
+/* 
+    ***************************
+    ********** TESTS **********
+    ***************************
+*/
 
 #[cfg(test)]
 mod tests {
@@ -201,22 +199,15 @@ mod tests {
     #[test]
     fn parse_nothing() {
         let json_str: &'static str = "";
-        match parse_json_str(json_str) {
-            Ok(Value::Null) => {},
-            _ => { panic!("ERROR: Expected null value"); }
-        }
+        parse_json_str(json_str).expect_err("Expected error when parsing nothing.");
     }
 
     #[test]
     fn parse_empty_object() {
         let json_str: &'static str = "{}";
         match parse_json_str(json_str) {
-            Ok(Value::Collection{ values: vals }) => {
-                assert_eq!(vals.elements.len(), 0);
-                assert_eq!(vals.key_val_pairs, true);
-            },
-            Err(e) => { panic!("ERROR: {}", e); }
-            _ => { panic!("ERROR: Expected empty object."); }
+            Ok(JsonValue::Object{ key_val_pairs: pairs }) => { assert_eq!(pairs.len(), 0); },
+            _ => { panic!("Expected empty object."); }
         }
     }
 
@@ -224,32 +215,28 @@ mod tests {
     fn parse_empty_array() {
         let json_str: &'static str = "[]";
         match parse_json_str(json_str) {
-            Ok(Value::Collection{ values: vals }) => {
-                assert_eq!(vals.elements.len(), 0);
-                assert_eq!(vals.key_val_pairs, false);
-            },
-            _ => { panic!("ERROR: Expected empty array."); }
+            Ok(JsonValue::Array{ elements: e }) => { assert_eq!(e.len(), 0); },
+            _ => { panic!("Expected empty array."); }
         }
     }
 
     #[test]
     fn parse_object_w_empty_array() {
         let json_str: &'static str = "{\"empty_array\":[]}";
-        match parse_json_str(json_str) {
-            Ok(Value::Collection{ values: vals }) => {
-                // assert root is an object that contains two elements (a empty array and its key)
-                assert_eq!(vals.elements.len(), 2);
-                assert_eq!(vals.key_val_pairs, true);
-                assert_eq!(vals.elements[0], Value::Key("empty_array"));
-                match &vals.elements[1] {
-                    Value::Collection{ values: vals } => {
-                        assert_eq!(vals.elements.len(), 0);
-                        assert_eq!(vals.key_val_pairs, false);
+        let result = parse_json_str(json_str);
+        match result {
+            Ok(JsonValue::Object{ key_val_pairs: pairs }) => {
+                assert_eq!(pairs.len(), 1);
+                let (key, value) = &pairs[0];
+                assert_eq!(key, &"empty_array");
+                match value {
+                    JsonValue::Array{ elements: e } => {
+                        assert_eq!(e.len(), 0);
                     },
-                    _ => { panic!("ERROR: Expected empty array."); }
+                    _ => { panic!("Expected empty array."); }
                 }
             },
-            _ => { panic!("ERROR: Expected empty object."); }
+            _ => { panic!("Expected object with empty array."); }
         }
     }
 
@@ -273,54 +260,42 @@ mod tests {
                 ]\n\
             }";
         
-        let root = parse_json_str(json_str);
-        match root {
-            Ok(Value::Collection{ values: vals }) => {
-                assert_eq!(vals.key_val_pairs, true); // collection is an object
-                assert_eq!(vals.elements.len(), 2); // collection contains array and its key
-                assert_eq!(vals.elements[0], Value::Key("pairs"));
-                let pairs_array = &vals.elements[1];
-                match pairs_array {
-                    Value::Collection{ values: vals } => {
-                        assert_eq!(vals.key_val_pairs, false); // collection is array
-                        assert_eq!(vals.elements.len(), 2); // collection has two pairs
-                        let pair_1 = &vals.elements[0];
-                        match pair_1 {
-                            Value::Collection{ values: vals } => {
-                                assert_eq!(vals.key_val_pairs, true); // collection is object
-                                assert_eq!(vals.elements.len(), 8); // collection has pairs of coordinates and keys
-                                assert_eq!(vals.elements[0], Value::Key("x0"));
-                                assert_eq!(vals.elements[1], Value::Number(12.5));
-                                assert_eq!(vals.elements[2], Value::Key("y0"));
-                                assert_eq!(vals.elements[3], Value::Number(24.5));
-                                assert_eq!(vals.elements[4], Value::Key("x1"));
-                                assert_eq!(vals.elements[5], Value::Number(50.5));
-                                assert_eq!(vals.elements[6], Value::Key("y1"));
-                                assert_eq!(vals.elements[7], Value::Number(37.5));
+        let result = parse_json_str(json_str);
+        match result {
+            Ok(JsonValue::Object{ key_val_pairs: pairs }) => {
+                assert_eq!(pairs.len(), 1);
+                let (key, value) = &pairs[0];
+                assert_eq!(key, &"pairs");
+                match value {
+                    JsonValue::Array{ elements: e } => {
+                        assert_eq!(e.len(), 2);
+                        match &e[0] {
+                            JsonValue::Object{ key_val_pairs: pairs } => {
+                                let key_pair_vals_1 = vec![("x0", JsonValue::Number(12.5f64)), 
+                                                            ("y0", JsonValue::Number(24.5f64)),
+                                                            ("x1", JsonValue::Number(50.5f64)), 
+                                                            ("y1", JsonValue::Number(37.5f64))];
+                                assert_eq!(pairs.len(), key_pair_vals_1.len());
+                                assert!(pairs.iter().eq(key_pair_vals_1.iter()));
                             },
-                            _ => { panic!("ERROR: Expected coordinate pair."); }
+                            _ => { panic!("Expected object."); }
                         }
-                        let pair_2 = &vals.elements[1];
-                        match pair_2 {
-                            Value::Collection{ values: vals } => {
-                                assert_eq!(vals.key_val_pairs, true); // collection is object
-                                assert_eq!(vals.elements.len(), 8); // collection has pairs of coordinates and keys
-                                assert_eq!(vals.elements[0], Value::Key("x0"));
-                                assert_eq!(vals.elements[1], Value::Number(12.25));
-                                assert_eq!(vals.elements[2], Value::Key("y0"));
-                                assert_eq!(vals.elements[3], Value::Number(22.25));
-                                assert_eq!(vals.elements[4], Value::Key("x1"));
-                                assert_eq!(vals.elements[5], Value::Number(-17.25));
-                                assert_eq!(vals.elements[6], Value::Key("y1"));
-                                assert_eq!(vals.elements[7], Value::Number(3.525e-9));
+                        match &e[1] {
+                            JsonValue::Object{ key_val_pairs: pairs } => {
+                                let key_pair_vals_2 = vec![("x0", JsonValue::Number(12.25f64)), 
+                                                            ("y0", JsonValue::Number(22.25f64)),
+                                                            ("x1", JsonValue::Number(-17.25f64)), 
+                                                            ("y1", JsonValue::Number(3.525e-9f64))];
+                                assert_eq!(pairs.len(), key_pair_vals_2.len());
+                                assert!(pairs.iter().eq(key_pair_vals_2.iter()));
                             },
-                            _ => { panic!("ERROR: Expected coordinate pair."); }
+                            _ => { panic!("Expected object."); }
                         }
                     },
-                    _ => { panic!("ERROR: Expected array of pairs"); }
+                    _ => { panic!("Expected pairs array."); }
                 }
             },
-            _ => { panic!("ERROR: Expected object with pairs array."); }
+            _ => { panic!("Expected object with a pairs array."); }
         }
     }
 }

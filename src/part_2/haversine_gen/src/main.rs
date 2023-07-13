@@ -61,23 +61,6 @@ fn write_haversine_binary_file(haversine_vals: &Vec<f64>, haversine_mean: f64) -
     return Result::Ok(());
 }
 
-pub fn read_haversine_binary_file(size: u64) -> std::io::Result<(Vec<f64>, f64)> {
-    let mut reader = File::open(format!("data_{}_haveranswer.f64", size))?;
-
-    let mut haversine_vals: Vec<f64> = Vec::<f64>::with_capacity(size as usize);
-    let mut buffer: [u8; 8] = [0; 8];
-    for _ in 0..size {
-        reader.read(&mut buffer)?;
-        let haversine_val = f64::from_le_bytes(buffer);
-        haversine_vals.push(haversine_val);
-    }
-
-    reader.read(&mut buffer)?;
-    let haversine_mean = f64::from_le_bytes(buffer);
-
-    Ok((haversine_vals, haversine_mean))
-}
-
 fn write_point_pairs_json(point_pairs: &Vec<PointPair>) -> std::io::Result<()> {
 
     let mut writer = BufWriter::new(

@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 haversine = { path = "haversine" }
+haversine_gen = { path = "haversine_gen" }
 json_parser = { path = "json_parser" }

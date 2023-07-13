@@ -7,6 +7,14 @@ name = "haversine"
 version = "0.1.0"
 
 [[package]]
+name = "haversine_gen"
+version = "0.1.0"
+dependencies = [
+ "haversine",
+ "rand_casey",
+]
+
+[[package]]
 name = "json_parser"
 version = "0.1.0"
 dependencies = [
@@ -18,5 +26,10 @@ name = "part_2"
 version = "0.1.0"
 dependencies = [
  "haversine",
+ "haversine_gen",
  "json_parser",
 ]
+
+[[package]]
+name = "rand_casey"
+version = "0.1.0"
