@@ -1,5 +1,13 @@
 use std::io::{Result, Error, ErrorKind::InvalidData};
 
+// Note: This does not follow spec exactly.
+// A few things that don't match spec:
+//  - Root must be an object/array
+//  - Anything following the root object/array is ignored
+//  - Commas are ignored in general, so extra commas are allowed
+//  - (Spec is uncertain on this but...) Keys in objects are not unique.
+//      - HashMap/FxHashMap were slower than linear searching in my limited usecase.
+
 #[derive(PartialEq, Debug)]
 pub enum JsonValue<'a> {
     Object{ key_val_pairs: Vec<(&'a str, JsonValue<'a>)> }, // Note: "Keys" are not unique within a json object :(

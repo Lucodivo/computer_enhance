@@ -21,16 +21,16 @@ fn main() {
 
     let mut stopwatch = StopWatch::now();
     let json_str = fs::read_to_string(input_filename).expect("Failed to read json input file.");
-    println!("Reading json file took {} ms", stopwatch.lap_millis());
+    println!("Reading json file took \t\t\t{} ms", stopwatch.lap_millis());
 
     let json_root = json_parser::parse_json_str(&json_str).expect("Failed to parse json input file.");
-    println!("Parsing json file took {} ms", stopwatch.lap_millis());
+    println!("Parsing json file took \t\t\t{} ms", stopwatch.lap_millis());
 
     let point_pairs = pairs_from_root_json(&json_root);
-    println!("Extracting point pairs from json took {} ms", stopwatch.lap_millis());
+    println!("Extracting point pairs from json took \t{} ms", stopwatch.lap_millis());
     
     let haversine_vals = point_pairs.iter().map(|pp| haversine::haversine(pp.x0, pp.y0, pp.x1, pp.y1, None)).collect::<Vec<f64>>();
-    println!("Calculating haversine values took {} ms", stopwatch.lap_millis());
+    println!("Calculating haversine values took \t{} ms", stopwatch.lap_millis());
 
     let pair_count_f64 = point_pairs.len() as f64;
     let haversine_mean = haversine_vals.iter().fold(0.0_f64, |acc, &x| acc + (x / pair_count_f64));
