@@ -7,14 +7,12 @@ pub enum JsonValue<'a> {
     String(&'a str),
     Number(f64),
     Boolean(bool),
-    Null,
+    Null
 }
 
 enum JsonToken<'a> {
-    ObjectStart,
-    ObjectTerminate,
-    ArrayStart,
-    ArrayTerminate,
+    ObjectStart, ObjectTerminate,
+    ArrayStart, ArrayTerminate,
     String(&'a str),
     Number(f64),
     Boolean(bool),
@@ -22,9 +20,9 @@ enum JsonToken<'a> {
 }
 
 pub fn parse_json_str<'a>(json_str: &'a str) -> Result<JsonValue<'a>> {
-    let json_bytes = json_str.as_bytes();
+    let json_bytes: &[u8] = json_str.as_bytes();
     
-    let mut index = 0;
+    let mut index: usize = 0;
     match parse_token(json_str, &json_bytes, &mut index) {
         Ok(JsonToken::ObjectStart) => { return Ok(parse_json_object(json_str, &json_bytes, &mut index)?); },
         Ok(JsonToken::ArrayStart) => { return Ok(parse_json_array(json_str, &json_bytes, &mut index)?); },
@@ -35,23 +33,12 @@ pub fn parse_json_str<'a>(json_str: &'a str) -> Result<JsonValue<'a>> {
 
 fn parse_json_object<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
     let mut members = Vec::<(&'a str, JsonValue<'a>)>::new();
-
-    let mut object_open = true;
-    while object_open {
-        let key_token = parse_token(json_str, json_bytes, advancing_index)?; // NOTE: does this create a local i? or does it modify the i in the parent scope?
-
-        match key_token {
+    loop {
+        match parse_token(json_str, json_bytes, advancing_index)? {
             JsonToken::String(key_str) => {
-                let value_token = parse_token(json_str, json_bytes, advancing_index)?; 
-                match value_token {
-                    JsonToken::ObjectStart => { 
-                        let object_value = parse_json_object(json_str, json_bytes, advancing_index)?;
-                        members.push((key_str, object_value));
-                    },
-                    JsonToken::ArrayStart => {
-                        let array_value = parse_json_array(json_str, json_bytes, advancing_index)?;
-                        members.push((key_str, array_value));
-                    },
+                match parse_token(json_str, json_bytes, advancing_index)? {
+                    JsonToken::ObjectStart => { members.push((key_str, parse_json_object(json_str, json_bytes, advancing_index)?)); },
+                    JsonToken::ArrayStart => { members.push((key_str, parse_json_array(json_str, json_bytes, advancing_index)?)); },
                     JsonToken::String(s) => { members.push((key_str, JsonValue::String(s))); },
                     JsonToken::Number(n) => { members.push((key_str, JsonValue::Number(n))); },
                     JsonToken::Boolean(b) => { members.push((key_str, JsonValue::Boolean(b))); },
@@ -60,34 +47,19 @@ fn parse_json_object<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: 
                     JsonToken::ArrayTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected object member value but found end of array.")); }
                 }
             },
-            JsonToken::ObjectTerminate => {
-                object_open = false;
-            },
-            _ => {
-                return Err(Error::new(InvalidData, "ERROR: Expected a string for a key in a json object."));
-            }
+            JsonToken::ObjectTerminate => { return Ok(JsonValue::Object{ key_val_pairs: members }); },
+            _ => { return Err(Error::new(InvalidData, "ERROR: Expected a string for a key in a json object.")); }
         }
     }
-
-    return Ok(JsonValue::Object{ key_val_pairs: members });
 }
 
 fn parse_json_array<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
     let mut elements = Vec::<JsonValue<'a>>::new();
-
-    let mut array_open = true;
-    while array_open {
-        let element_token = parse_token(json_str, json_bytes, advancing_index)?; // NOTE: does this create a local i? or does it modify the i in the parent scope?
-        match element_token {
-            JsonToken::ObjectStart => { 
-                let object_value = parse_json_object(json_str, json_bytes, advancing_index)?;
-                elements.push(object_value);
-            },
-            JsonToken::ArrayStart => {
-                let array_value = parse_json_array(json_str, json_bytes, advancing_index)?;
-                elements.push(array_value);
-            },
-            JsonToken::ArrayTerminate => { array_open = false; },
+    loop {
+        match parse_token(json_str, json_bytes, advancing_index)? {
+            JsonToken::ObjectStart => { elements.push(parse_json_object(json_str, json_bytes, advancing_index)?); },
+            JsonToken::ArrayStart => { elements.push(parse_json_array(json_str, json_bytes, advancing_index)?); },
+            JsonToken::ArrayTerminate => { return Ok(JsonValue::Array{ elements: elements }); },
             JsonToken::String(s) => { elements.push(JsonValue::String(s)); },
             JsonToken::Number(n) => { elements.push(JsonValue::Number(n)); },
             JsonToken::Boolean(b) => { elements.push(JsonValue::Boolean(b)); },
@@ -96,14 +68,21 @@ fn parse_json_array<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &
         }
     }
 
-    return Ok(JsonValue::Array{ elements: elements });
 }
 
 fn parse_token<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut usize) -> Result<JsonToken<'a>> {
-    
+
     while *advancing_index < json_bytes.len() {
+
+        let check_slice = |s: &[u8], i: &mut usize| -> bool {
+            let start_i = *i;
+            *i += s.len();
+            if json_bytes.len() < *i { return false; }
+            return json_bytes[start_i..*i].eq(s);
+        };
+
         let byte = json_bytes[*advancing_index];
-        *advancing_index += 1;
+        *advancing_index += 1; // index first, as it is expected to advance before returning from function
         match byte {
             b'{' => { return Ok(JsonToken::ObjectStart);},
             b'}' => { return Ok(JsonToken::ObjectTerminate); },
@@ -111,75 +90,45 @@ fn parse_token<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut u
             b']' => { return Ok(JsonToken::ArrayTerminate); },
             b'"' => {
                 let start_str_index = *advancing_index;
-                let mut escaped = false;
                 while *advancing_index < json_bytes.len() {
                     match json_bytes[*advancing_index] {
-                        b'\\' => { escaped = true; }
-                        b'"' if !escaped => {
+                        b'\\' => { *advancing_index += 2; }
+                        b'"' => {
                             let end_quote_index = *advancing_index;
                             *advancing_index += 1;
                             return Ok(JsonToken::String(&json_str[start_str_index..end_quote_index]));
                         },
-                        _ => { escaped = false; }
+                        _ => { *advancing_index += 1; }
                     }
-                    *advancing_index += 1;
                 }
-                return Err(Error::new(InvalidData, "ERROR: Json ended before the end of a string.")); 
             },
             b't' => {
-                if let Some(b'r') = json_bytes.get(*advancing_index) {
-                    if let Some(b'u') = json_bytes.get(*advancing_index+1) {
-                        if let Some(b'e') = json_bytes.get(*advancing_index+2) {
-                            *advancing_index += 3;
-                            return Ok(JsonToken::Boolean(true));
-                        }
-                    }
-                }
-                return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 't'"));
+                if check_slice(b"rue", advancing_index) { return Ok(JsonToken::Boolean(true)); }
+                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 't'")); }
             },
             b'f' => {
-                if let Some(b'a') = json_bytes.get(*advancing_index) {
-                    if let Some(b'l') = json_bytes.get(*advancing_index+1) {
-                        if let Some(b's') = json_bytes.get(*advancing_index+2) {
-                            if let Some(b'e') = json_bytes.get(*advancing_index+3) {
-                                *advancing_index += 4;
-                                return Ok(JsonToken::Boolean(true));
-                            }
-                        }
-                    }
-                }
-                return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'f'"));
+                if check_slice(b"alse", advancing_index) { return Ok(JsonToken::Boolean(false)); } 
+                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'f'")); }
             },
             b'n' => {
-                if let Some(b'u') = json_bytes.get(*advancing_index) {
-                    if let Some(b'l') = json_bytes.get(*advancing_index+2) {
-                        if let Some(b'l') = json_bytes.get(*advancing_index+3) {
-                            *advancing_index += 4;
-                            return Ok(JsonToken::Null);
-                        }
-                    }
-                }
-                return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'n'"));
+                if check_slice(b"ull", advancing_index) { return Ok(JsonToken::Null); }
+                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'n'")); }
             },
             b'0'..=b'9'|b'-'|b'+' => {
-                let first_number_index = *advancing_index - 1;
+                let first_index = *advancing_index - 1;
                 while *advancing_index < json_bytes.len() {
                     match json_bytes[*advancing_index] {
                         b'0'..=b'9'|b'.'|b'+'|b'-'|b'e'|b'E' => { *advancing_index += 1; },
-                        _ => { break; }
+                        _ => match json_str[first_index..*advancing_index].parse::<f64>() {
+                            Ok(n) => { return Ok(JsonToken::Number(n)); },
+                            Err(e) => { return Err(Error::new(InvalidData, format!("ERROR: Invalid number: {}", e))); }
+                        }
                     }
                 }
-                if let Ok(number) = json_str[first_number_index..*advancing_index].parse::<f64>() {
-                    return Ok(JsonToken::Number(number));
-                }
-                return Err(Error::new(InvalidData, "ERROR: Invalid number."));
             },
             b' ' | b'\t' | b'\n' | b'\r' | b','|b':' => {}, // ignore whitespace, commas, colons
-            _ => { // anything else is invalid
-                return Err(Error::new(InvalidData, "ERROR: Parsing invalid token.")); 
-            } 
+            _ => { return Err(Error::new(InvalidData, "ERROR: Parsing invalid token.")); } 
         }
     }
-
-    return Err(Error::new(InvalidData, "ERROR: End of object or array not found."));
+    return Err(Error::new(InvalidData, "ERROR: Unexpectedly reached end of json file."));
 }
