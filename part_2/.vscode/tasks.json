@@ -1,0 +1,70 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "rust: cargo build haversine",
+			"type": "cargo",
+			"command": "build",
+			"problemMatcher": [
+				"$rustc",
+				"$rust-panic"
+			],
+			"group": "build",
+			"options": {
+				"cwd": "${workspaceFolder}/haversine"
+			}
+		},
+		{
+			"label": "rust: cargo build haversine_gen",
+			"type": "cargo",
+			"command": "build",
+			"problemMatcher": [
+				"$rustc",
+				"$rust-panic"
+			],
+			"group": "build",
+			"options": {
+				"cwd": "${workspaceFolder}/haversine_gen"
+			}
+		},
+		{
+			"label": "rust: cargo build rand_casey",
+			"type": "cargo",
+			"command": "build",
+			"problemMatcher": [
+				"$rustc",
+				"$rust-panic"
+			],
+			"group": "build",
+			"options": {
+				"cwd": "${workspaceFolder}/rand_casey"
+			}
+		},
+		{
+			"label": "rust: cargo build main",
+			"type": "cargo",
+			"command": "build",
+			"problemMatcher": [
+				"$rustc",
+				"$rust-panic"
+			],
+			"group": "build",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			}
+		},
+		{
+			"label": "rust: cargo build json_parser",
+			"type": "cargo",
+			"command": "build",
+			"problemMatcher": [
+				"$rustc",
+				"$rust-panic"
+			],
+			"group": "build",
+			"options": {
+				"cwd": "${workspaceFolder}/json_parser"
+			}
+		},
+	]
+}
