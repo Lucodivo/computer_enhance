@@ -13,7 +13,7 @@
                     "build"
                 ]
             },
-            "args": ["data/seed_123123/data_2000000_flex.json", "data/seed_123123/data_2000000_haveranswer.f64"],
+            "args": ["data/seed_123123/data_200000_flex.json", "data/seed_123123/data_200000_haveranswer.f64"],
         },
         {
             "name": "Debug haversine_gen cluster 20",

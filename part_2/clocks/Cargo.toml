@@ -1,0 +1,17 @@
+[package]
+name = "clocks"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "clocks"
+path = "src/lib.rs"
+
+[[bin]]
+name = "clocks_bin"
+path = "src/main.rs"
+
+[dependencies]
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3.9", features = ["profileapi"] }
