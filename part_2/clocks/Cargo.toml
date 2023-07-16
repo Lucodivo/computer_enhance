@@ -7,10 +7,6 @@ edition = "2021"
 name = "clocks"
 path = "src/lib.rs"
 
-[[bin]]
-name = "clocks_bin"
-path = "src/main.rs"
-
 [dependencies]
 
 [target.'cfg(windows)'.dependencies]
