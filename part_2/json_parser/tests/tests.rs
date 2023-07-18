@@ -1,18 +1,18 @@
 #[cfg(test)]
 mod tests {
 
-    use json_parser::{JsonValue, parse_json_str};
+    use json_parser::{JsonValue, parse_json_bytes};
 
     #[test]
     fn parse_nothing() {
-        let json_str: &'static str = "";
-        parse_json_str(json_str).expect_err("Expected error when parsing nothing.");
+        let json_bytes: &'static [u8] = b"";
+        parse_json_bytes(json_bytes).expect_err("Expected error when parsing nothing.");
     }
 
     #[test]
     fn parse_empty_object() {
-        let json_str: &'static str = "{}";
-        match parse_json_str(json_str) {
+        let json_bytes: &'static [u8] = b"{}";
+        match parse_json_bytes(json_bytes) {
             Ok(JsonValue::Object{ key_val_pairs: pairs }) => { assert_eq!(pairs.len(), 0); },
             _ => { panic!("Expected empty object."); }
         }
@@ -20,8 +20,8 @@ mod tests {
 
     #[test]
     fn parse_empty_array() {
-        let json_str: &'static str = "[]";
-        match parse_json_str(json_str) {
+        let json_bytes: &'static [u8] = b"[]";
+        match parse_json_bytes(json_bytes) {
             Ok(JsonValue::Array{ elements: e }) => { assert_eq!(e.len(), 0); },
             _ => { panic!("Expected empty array."); }
         }
@@ -29,13 +29,13 @@ mod tests {
 
     #[test]
     fn parse_object_w_empty_array() {
-        let json_str: &'static str = "{\"empty_array\":[]}";
-        let result = parse_json_str(json_str);
+        let json_bytes: &'static [u8] = b"{\"empty_array\":[]}";
+        let result = parse_json_bytes(json_bytes);
         match result {
             Ok(JsonValue::Object{ key_val_pairs: pairs }) => {
                 assert_eq!(pairs.len(), 1);
                 let (key, value) = &pairs[0];
-                assert_eq!(key, &"empty_array");
+                assert_eq!(key, &b"empty_array");
                 match value {
                     JsonValue::Array{ elements: e } => {
                         assert_eq!(e.len(), 0);
@@ -49,13 +49,13 @@ mod tests {
 
     #[test]
     fn parse_array_many_types() {
-        let json_str: &'static str = "[\"string\", 12.5, 24, true, false, null]";
-        let result = parse_json_str(json_str);
+        let json_bytes: &'static [u8] = b"[\"string\", 12.5, 24, true, false, null]";
+        let result = parse_json_bytes(json_bytes);
         match result {
             Ok(JsonValue::Array{ elements: e }) => {
                 assert_eq!(e.len(), 6);
                 match &e[0] {
-                    JsonValue::String(s) => { assert_eq!(s, &"string"); },
+                    JsonValue::String(s) => { assert_eq!(s, &b"string"); },
                     _ => { panic!("Expected string."); }
                 }
                 match &e[1] {
@@ -85,18 +85,18 @@ mod tests {
 
     #[test]
     fn parse_whitespace_and_escaped_characters() {
-        let json_str: &'static str = 
-        "  \t\n\r{\
+        let json_bytes: &'static [u8] = 
+        b"  \t\n\r{\
             \t\n\r\"{}[]:true\\\"_\\\"false\\\'null123.01e-2\\\"\"  \t\n\r:\
                 \t\n\r[  \t\n\r]\
         \t\n\r}  \t\n\r";
         
-        let result = parse_json_str(json_str);
+        let result = parse_json_bytes(json_bytes);
         match result {
             Ok(JsonValue::Object{ key_val_pairs: pairs }) => {
                 assert_eq!(pairs.len(), 1);
                 let (key, value) = &pairs[0];
-                assert_eq!(key, &"{}[]:true\\\"_\\\"false\\\'null123.01e-2\\\"");
+                assert_eq!(key, &b"{}[]:true\\\"_\\\"false\\\'null123.01e-2\\\"");
                 match value {
                     JsonValue::Array{ elements: e } => {
                         assert_eq!(e.len(), 0);
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn parse_pairs_test() {
-        let json_str: &'static str = "\
+        let json_bytes: &'static [u8] = b"\
             {\
                 \"pairs\":[\
                     {\
@@ -128,35 +128,51 @@ mod tests {
                 ]\
             }";
         
-        let result = parse_json_str(json_str);
+        let result = parse_json_bytes(json_bytes);
         match result {
             Ok(JsonValue::Object{ key_val_pairs: pairs }) => {
                 assert_eq!(pairs.len(), 1);
                 let (key, value) = &pairs[0];
-                assert_eq!(key, &"pairs");
+                assert_eq!(key, &b"pairs");
                 match value {
                     JsonValue::Array{ elements: e } => {
                         assert_eq!(e.len(), 2);
                         // TODO: Tests wouldn't print out very helpful error messages if these assertions fail. Consider refactor.
                         match &e[0] {
-                            JsonValue::Object{ key_val_pairs: pairs } => {
-                                let key_pair_vals_1 = vec![("x0", JsonValue::Number(12.5f64)), 
-                                                            ("y0", JsonValue::Number(24.5f64)),
-                                                            ("x1", JsonValue::Number(50.5f64)), 
-                                                            ("y1", JsonValue::Number(37.5f64))];
-                                assert_eq!(pairs.len(), key_pair_vals_1.len());
-                                assert!(pairs.iter().eq(key_pair_vals_1.iter()));
+                            JsonValue::Object{ key_val_pairs: kvp_actual } => {
+                                let kvp_expected: Vec<(&[u8], f64)> = 
+                                    vec![(b"x0", 12.5), 
+                                        (b"y0", 24.5),
+                                        (b"x1", 50.5), 
+                                        (b"y1", 37.5)];
+                                assert_eq!(kvp_actual.len(), kvp_expected.len());
+                                for kvp_expected in kvp_expected {
+                                    match kvp_actual.iter().find(|&x| x.0 == kvp_expected.0) {
+                                        Some((_, JsonValue::Number(actual_num) )) => {
+                                            assert_eq!(*actual_num, kvp_expected.1);
+                                        },
+                                        _ => { panic!("Expected pair value for \"{:?}\" not found.", kvp_expected.0); }
+                                    }
+                                }
                             },
                             _ => { panic!("Expected object."); }
                         }
                         match &e[1] {
-                            JsonValue::Object{ key_val_pairs: pairs } => {
-                                let key_pair_vals_2 = vec![("x0", JsonValue::Number(12.25f64)), 
-                                                            ("y0", JsonValue::Number(22.25f64)),
-                                                            ("x1", JsonValue::Number(-17.25f64)), 
-                                                            ("y1", JsonValue::Number(3.525e-9f64))];
-                                assert_eq!(pairs.len(), key_pair_vals_2.len());
-                                assert!(pairs.iter().eq(key_pair_vals_2.iter()));
+                            JsonValue::Object{ key_val_pairs: kvp_actual } => {
+                                let kvp_expected: Vec<(&[u8], f64)> = 
+                                    vec![(b"x0", 12.25), 
+                                        (b"y0", 22.25),
+                                        (b"x1", -17.25), 
+                                        (b"y1", 3.525e-9)];
+                                assert_eq!(kvp_expected.len(), kvp_actual.len());
+                                for kvp_expected in kvp_expected {
+                                    match kvp_actual.iter().find(|&x| x.0 == kvp_expected.0) {
+                                        Some((_, JsonValue::Number(actual_num) )) => {
+                                            assert_eq!(*actual_num, kvp_expected.1);
+                                        },
+                                        _ => { panic!("Expected pair value for \"{:?}\" not found.", kvp_expected.0); }
+                                    }
+                                }
                             },
                             _ => { panic!("Expected object."); }
                         }
@@ -164,7 +180,8 @@ mod tests {
                     _ => { panic!("Expected pairs array."); }
                 }
             },
-            _ => { panic!("Expected object with a pairs array."); }
+            Ok(_) => { panic!("Expected object with pairs array."); },
+            Err(e) => { panic!("Error parsing json: {}", e); }
         }
     }
 }

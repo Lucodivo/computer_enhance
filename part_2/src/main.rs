@@ -22,10 +22,10 @@ fn main() {
     let input_filename = args[1].parse::<String>().unwrap();
     let setup_clocks = stopwatch.lap_clocks();
 
-    let json_str = fs::read_to_string(input_filename).expect("Failed to read json input file.");
+    let json_bytes = fs::read(input_filename).expect("Failed to read json input file.");
     let read_file_clocks = stopwatch.lap_clocks();
 
-    let json_root = json_parser::parse_json_str(&json_str).expect("Failed to parse json input file.");
+    let json_root = json_parser::parse_json_bytes(&json_bytes).expect("Failed to parse json input file.");
     let parse_json_clocks = stopwatch.lap_clocks();
 
     let point_pairs = pairs_from_root_json(&json_root);
@@ -40,7 +40,7 @@ fn main() {
 
     let final_clocks = stopwatch.total_clocks();
 
-    println!("Input file size:\t{} bytes", printable_large_num(json_str.as_bytes().len() as u64));
+    println!("Input file size:\t{} bytes", printable_large_num(json_bytes.len() as u64));
     println!("Pair count:\t\t{}", printable_large_num(point_pairs.len() as u64));
     println!("Haversine mean:\t\t{}\n", haversine_mean);
     println!("Total time:\t\t{:2}ms (CPU freq {}Hz)", stopwatch.total_secs() * 1_000_f64, printable_large_num(stopwatch.cpu_freq));
@@ -56,14 +56,12 @@ fn main() {
         let answers_filename = args[2].parse::<String>().unwrap();
         match read_haversine_binary_file(&answers_filename) {
             Ok((answer_haversine_vals, answer_haversine_mean)) => {
-                if haversine_vals.len() == answer_haversine_vals.len() {
-                    if haversine_vals.iter().eq(answer_haversine_vals.iter()) { 
-                        println!("Calculated haversine values match the answers file!");
-                    } else { eprintln!("ERROR: Calculated haversine values do *NOT* match the answers file."); }
-                    if haversine_mean == answer_haversine_mean { 
-                        println!("Calculated haversine mean matches the answers file!");
-                    } else { eprintln!("ERROR: Calculated haversine mean does *NOT* match the answers file."); }
-                } else { eprintln!("ERROR: Error data json had {} point pairs but answers file only had {} values.", haversine_vals.len(), answer_haversine_vals.len()); }
+                assert!(haversine_vals.len() == answer_haversine_vals.len(), 
+                    "ERROR: Error data json had {} point pairs but answers file only had {} values.", 
+                    haversine_vals.len(), answer_haversine_vals.len());
+                if haversine_mean == answer_haversine_mean { 
+                    println!("Calculated haversine mean matches the answers file!");
+                } else { eprintln!("ERROR: Calculated haversine mean does *NOT* match the answers file."); }
             },
             Err(e) => {
                 panic!("Failed to read haversine answers file: {}", e);
@@ -76,19 +74,19 @@ fn pairs_from_root_json(json_root: &JsonValue) -> Vec<PointPair> {
     let mut point_pairs = Vec::<PointPair>::new();
 
     if let JsonValue::Object{ key_val_pairs: kvp } = json_root {
-        if let (_, JsonValue::Array{ elements: json_point_pairs }) = kvp.iter().find(|&kv| kv.0 == "pairs").expect("Couldn't find pairs in json.") {
+        if let (_, JsonValue::Array{ elements: json_point_pairs }) = kvp.iter().find(|&kv| kv.0 == b"pairs").expect("Couldn't find pairs in json.") {
             for json_point_pair in json_point_pairs {
                 if let JsonValue::Object{ key_val_pairs: kvp } = json_point_pair {
-                    let get_float = |key: &str| -> f64 {
+                    let get_float = |key: &[u8]| -> f64 {
                         if let JsonValue::Number(n) = kvp.iter().find(|&kv| kv.0 == key).expect("Point in json is missing values.").1 {
                             return n;
                         } else { panic!("Point in json has non-number values.") }
                     };
                     point_pairs.push(PointPair{ 
-                        x0: get_float("x0"),
-                        y0: get_float("y0"),
-                        x1: get_float("x1"),
-                        y1: get_float("y1")
+                        x0: get_float(b"x0"),
+                        y0: get_float(b"y0"),
+                        x1: get_float(b"x1"),
+                        y1: get_float(b"y1")
                     });
                 }
             }

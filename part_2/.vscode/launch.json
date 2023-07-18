@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug main exe - 2,000,000",
+            "name": "Debug main exe - 20",
             "type": "lldb",
             "request": "launch",
             "cargo": {
@@ -13,7 +13,7 @@
                     "build"
                 ]
             },
-            "args": ["data/seed_123123/data_200000_flex.json", "data/seed_123123/data_200000_haveranswer.f64"],
+            "args": ["data/seed_123123/data_20_flex.json", "data/seed_123123/data_20_haveranswer.f64"],
         },
         {
             "name": "Debug haversine_gen cluster 20",
@@ -42,6 +42,23 @@
                     "name": "tests"
                 }
             }
+        },
+        {
+            "name": "Debug json_parser test parse_pairs_test",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--no-fail-fast",
+                    "--package=json_parser"
+                ],
+                "filter": {
+                    "name": "tests"
+                }
+            },
+            "args": [ "parse_pairs_test" ],
         }
     ]
 }

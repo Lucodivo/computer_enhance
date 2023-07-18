@@ -1,18 +1,19 @@
 use std::io::{Result, Error, ErrorKind::InvalidData};
 
 // Note: This does not follow spec exactly.
-// A few things that don't match spec:
+// Known things that don't match spec:
 //  - Root must be an object/array
 //  - Anything following the root object/array is ignored
 //  - Commas are ignored in general, so extra commas are allowed
 //  - (Spec is uncertain on this but...) Keys in objects are not unique.
 //      - HashMap/FxHashMap were slower than linear searching in my limited usecase.
+//  - Strings are returned as just the bytes between two non-escaped quotes. Escape slashes and their following character are not removed.
 
 #[derive(PartialEq, Debug)]
 pub enum JsonValue<'a> {
-    Object{ key_val_pairs: Vec<(&'a str, JsonValue<'a>)> }, // Note: "Keys" are not unique within a json object :(
+    Object{ key_val_pairs: Vec<(&'a [u8], JsonValue<'a>)> }, // Note: "Keys" are not unique within a json object :(
     Array{ elements: Vec<JsonValue<'a>> },
-    String(&'a str),
+    String(&'a [u8]),
     Number(f64),
     Boolean(bool),
     Null
@@ -21,32 +22,30 @@ pub enum JsonValue<'a> {
 enum JsonToken<'a> {
     ObjectStart, ObjectTerminate,
     ArrayStart, ArrayTerminate,
-    String(&'a str),
+    String(&'a [u8]),
     Number(f64),
     Boolean(bool),
     Null
 }
 
-pub fn parse_json_str<'a>(json_str: &'a str) -> Result<JsonValue<'a>> {
-    let json_bytes: &[u8] = json_str.as_bytes();
-    
+pub fn parse_json_bytes<'a>(json_bytes: &'a [u8]) -> Result<JsonValue<'a>> {
     let mut index: usize = 0;
-    match parse_token(json_str, &json_bytes, &mut index) {
-        Ok(JsonToken::ObjectStart) => { return Ok(parse_json_object(json_str, &json_bytes, &mut index)?); },
-        Ok(JsonToken::ArrayStart) => { return Ok(parse_json_array(json_str, &json_bytes, &mut index)?); },
+    match parse_token(&json_bytes, &mut index) {
+        Ok(JsonToken::ObjectStart) => { return Ok(parse_json_object(json_bytes, &mut index)?); },
+        Ok(JsonToken::ArrayStart) => { return Ok(parse_json_array(json_bytes, &mut index)?); },
         Ok(_) => { return Err(Error::new(InvalidData, "ERROR: Json must have an object or array as the root. Nothing may exist but whitespace after the root.")); },
         Err(e) => { return Err(e); }
     }
 }
 
-fn parse_json_object<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
-    let mut members = Vec::<(&'a str, JsonValue<'a>)>::new();
+fn parse_json_object<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
+    let mut members = Vec::<(&'a [u8], JsonValue<'a>)>::new();
     loop {
-        match parse_token(json_str, json_bytes, advancing_index)? {
+        match parse_token(json_bytes, advancing_index)? {
             JsonToken::String(key_str) => {
-                match parse_token(json_str, json_bytes, advancing_index)? {
-                    JsonToken::ObjectStart => { members.push((key_str, parse_json_object(json_str, json_bytes, advancing_index)?)); },
-                    JsonToken::ArrayStart => { members.push((key_str, parse_json_array(json_str, json_bytes, advancing_index)?)); },
+                match parse_token(json_bytes, advancing_index)? {
+                    JsonToken::ObjectStart => { members.push((key_str, parse_json_object(json_bytes, advancing_index)?)); },
+                    JsonToken::ArrayStart => { members.push((key_str, parse_json_array(json_bytes, advancing_index)?)); },
                     JsonToken::String(s) => { members.push((key_str, JsonValue::String(s))); },
                     JsonToken::Number(n) => { members.push((key_str, JsonValue::Number(n))); },
                     JsonToken::Boolean(b) => { members.push((key_str, JsonValue::Boolean(b))); },
@@ -61,12 +60,12 @@ fn parse_json_object<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: 
     }
 }
 
-fn parse_json_array<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
+fn parse_json_array<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
     let mut elements = Vec::<JsonValue<'a>>::new();
     loop {
-        match parse_token(json_str, json_bytes, advancing_index)? {
-            JsonToken::ObjectStart => { elements.push(parse_json_object(json_str, json_bytes, advancing_index)?); },
-            JsonToken::ArrayStart => { elements.push(parse_json_array(json_str, json_bytes, advancing_index)?); },
+        match parse_token(json_bytes, advancing_index)? {
+            JsonToken::ObjectStart => { elements.push(parse_json_object(json_bytes, advancing_index)?); },
+            JsonToken::ArrayStart => { elements.push(parse_json_array(json_bytes, advancing_index)?); },
             JsonToken::ArrayTerminate => { return Ok(JsonValue::Array{ elements: elements }); },
             JsonToken::String(s) => { elements.push(JsonValue::String(s)); },
             JsonToken::Number(n) => { elements.push(JsonValue::Number(n)); },
@@ -78,7 +77,7 @@ fn parse_json_array<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &
 
 }
 
-fn parse_token<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut usize) -> Result<JsonToken<'a>> {
+fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonToken<'a>> {
 
     while *advancing_index < json_bytes.len() {
 
@@ -89,7 +88,7 @@ fn parse_token<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut u
             return json_bytes[start_i..*i].eq(s);
         };
 
-        let byte = json_bytes[*advancing_index];
+        let mut byte = json_bytes[*advancing_index];
         *advancing_index += 1; // index first, as it is expected to advance before returning from function
         match byte {
             b'{' => { return Ok(JsonToken::ObjectStart);},
@@ -104,7 +103,7 @@ fn parse_token<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut u
                         b'"' => {
                             let end_quote_index = *advancing_index;
                             *advancing_index += 1;
-                            return Ok(JsonToken::String(&json_str[start_str_index..end_quote_index]));
+                            return Ok(JsonToken::String(&json_bytes[start_str_index..end_quote_index]));
                         },
                         _ => { *advancing_index += 1; }
                     }
@@ -123,16 +122,87 @@ fn parse_token<'a>(json_str: &'a str, json_bytes: &[u8], advancing_index: &mut u
                 else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'n'")); }
             },
             b'0'..=b'9'|b'-'|b'+' => {
-                let first_index = *advancing_index - 1;
+
+                // pull sign
+                let sign: f64;
+                if byte == b'-' {
+                    sign = -1.0;
+                    byte = json_bytes[*advancing_index];
+                    *advancing_index += 1;
+                } else {
+                    sign = 1.0;
+                    if byte == b'+' { 
+                        byte = json_bytes[*advancing_index];
+                        *advancing_index += 1; 
+                    }
+                }
+
+                // pull integer
+                let mut integer: f64 = (byte - b'0') as f64;
                 while *advancing_index < json_bytes.len() {
-                    match json_bytes[*advancing_index] {
-                        b'0'..=b'9'|b'.'|b'+'|b'-'|b'e'|b'E' => { *advancing_index += 1; },
-                        _ => match json_str[first_index..*advancing_index].parse::<f64>() {
-                            Ok(n) => { return Ok(JsonToken::Number(n)); },
-                            Err(e) => { return Err(Error::new(InvalidData, format!("ERROR: Invalid number: {}", e))); }
+                    byte = json_bytes[*advancing_index];
+
+                    match byte {
+                        b'0'..=b'9' => {
+                            integer = (integer * 10.0) + (byte - b'0') as f64;
+                            *advancing_index += 1;
+                        },
+                        _ => {break;}
+                    }
+                }
+
+                // pull fraction
+                let mut fract: f64 = 0.0;
+                if byte == b'.' {
+                    *advancing_index += 1;
+                    let mut fract_mul: f64 = 1.0 / 10.0;
+
+                    while *advancing_index < json_bytes.len() {
+                        byte = json_bytes[*advancing_index];
+    
+                        match byte {
+                            b'0'..=b'9' => {
+                                fract += fract_mul * (byte - b'0') as f64;
+                                fract_mul *= 1.0 / 10.0;
+                                *advancing_index += 1; 
+                            },
+                            _ => {break;}
                         }
                     }
                 }
+
+                // pull explicit exponent
+                let mut exp: i32 = 0;
+                let mut exp_sign: i32 = 1;
+                if byte == b'e' || byte == b'E' {
+                    *advancing_index += 1;
+
+                    if json_bytes[*advancing_index] == b'-' {
+                        exp_sign = -1;
+                        *advancing_index += 1;
+                    } else {
+                        if byte == b'+' { 
+                            *advancing_index += 1; 
+                        }
+                    }
+
+                    while *advancing_index < json_bytes.len() {
+                        byte = json_bytes[*advancing_index];
+    
+                        match byte {
+                            b'0'..=b'9' => {
+                                exp *= 10;
+                                exp += (byte - b'0') as i32;
+                                *advancing_index += 1; 
+                            },
+                            _ => { break; }
+                        }
+                    }
+                }
+                
+                let exp_multiplier = 10_f64.powi(exp * exp_sign);
+                let magnitude = integer + fract;
+                return Ok(JsonToken::Number(sign * exp_multiplier * magnitude));
             },
             b' ' | b'\t' | b'\n' | b'\r' | b','|b':' => {}, // ignore whitespace, commas, colons
             _ => { return Err(Error::new(InvalidData, "ERROR: Parsing invalid token.")); } 

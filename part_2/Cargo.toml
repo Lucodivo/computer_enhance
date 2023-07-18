@@ -9,4 +9,4 @@ edition = "2021"
 haversine = { path = "haversine" }
 haversine_gen = { path = "haversine_gen" }
 json_parser = { path = "json_parser" }
-clocks ={ path = "clocks" }
+clocks = { path = "clocks" }
