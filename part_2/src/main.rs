@@ -44,6 +44,7 @@ fn main() {
     println!("Pair count:\t\t{}", printable_large_num(point_pairs.len() as u64));
     println!("Haversine mean:\t\t{}\n", haversine_mean);
     println!("Total time:\t\t{:2}ms (CPU freq {}Hz)", stopwatch.total_secs() * 1_000_f64, printable_large_num(stopwatch.cpu_freq));
+    println!("Total clocks:\t\t{}", printable_large_num(final_clocks));
     println!("Startup:\t\t{}\t\t({:.2}%)", printable_large_num(setup_clocks), setup_clocks as f64 / final_clocks as f64 * 100.0);
     println!("Read:\t\t\t{}\t({:.2}%)", printable_large_num(read_file_clocks), read_file_clocks as f64 / final_clocks as f64 * 100.0);
     println!("Generic JSON Parse:\t{}\t({:.2}%)", printable_large_num(parse_json_clocks), parse_json_clocks as f64 / final_clocks as f64 * 100.0);
