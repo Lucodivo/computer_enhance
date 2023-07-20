@@ -26,6 +26,7 @@ name = "json_parser"
 version = "0.1.0"
 dependencies = [
  "haversine",
+ "profiler",
 ]
 
 [[package]]
@@ -36,10 +37,23 @@ dependencies = [
  "haversine",
  "haversine_gen",
  "json_parser",
+ "profiler",
+]
+
+[[package]]
+name = "profiler"
+version = "0.1.0"
+dependencies = [
+ "clocks",
+ "utils",
 ]
 
 [[package]]
 name = "rand_casey"
+version = "0.1.0"
+
+[[package]]
+name = "utils"
 version = "0.1.0"
 
 [[package]]

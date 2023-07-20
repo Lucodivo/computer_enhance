@@ -15,3 +15,4 @@ path = "src/main.rs"
 
 [dependencies]
 clocks = { path = "../clocks" }
+utils = { path = "../utils" }
