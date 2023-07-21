@@ -23,13 +23,13 @@ fn main() {
 
     assert!(args.len() >= 2 && args.len() <= 3, "{}", usage);
     
-    let input_filename = args[1].parse::<String>().unwrap();
-    let json_bytes = fs::read(input_filename).expect("Failed to read json input file.");
-    let json_root = json_parser::parse_json_bytes(&json_bytes).expect("Failed to parse json input file.");
-    let point_pairs = pairs_from_root_json(&json_root);
-    let haversine_vals = point_pairs.iter().map(|pp| haversine::haversine(pp.x0, pp.y0, pp.x1, pp.y1, None)).collect::<Vec<f64>>();
+    time_stmt_lhsmsg!(let input_filename = args[1].parse::<String>().unwrap());
+    time_stmt_lhsmsg!(let json_bytes = fs::read(input_filename).expect("Failed to read json input file."));
+    time_stmt_lhsmsg!(let json_root = json_parser::parse_json_bytes(&json_bytes).expect("Failed to parse json input file."));
+    time_stmt_lhsmsg!(let point_pairs = pairs_from_root_json(&json_root));
+    time_stmt_lhsmsg!(let haversine_vals = point_pairs.iter().map(|pp| haversine::haversine(pp.x0, pp.y0, pp.x1, pp.y1, None)).collect::<Vec<f64>>());
     let pair_count_f64 = point_pairs.len() as f64;
-    let haversine_mean = haversine_vals.iter().fold(0.0_f64, |acc, &x| acc + (x / pair_count_f64));
+    time_stmt_lhsmsg!(let haversine_mean = haversine_vals.iter().fold(0.0_f64, |acc, &x| acc + (x / pair_count_f64)));
 
     // println!("Input file size:\t{} bytes", printable_large_num(json_bytes.len() as u64));
     // println!("Pair count:\t\t{}", printable_large_num(point_pairs.len() as u64));

@@ -81,6 +81,34 @@ macro_rules! time_block {
 }
 
 #[macro_export]
+macro_rules! time_stmt_rhsmsg  {
+    ($x:stmt) => {
+        let stmt = stringify!($x);
+        let rhs = if let Some(equal_index) = stmt.find('=') {
+            stmt[equal_index + 1..stmt.len()-1].trim_start()
+        } else { &stmt[..stmt.len()-1] };
+        unsafe { PROFILER.register(rhs); }
+        $x;
+        unsafe { PROFILER.unregister(rhs); }
+    }
+}
+
+#[macro_export]
+macro_rules! time_stmt_lhsmsg  {
+    ($x:stmt) => {
+        let stmt = stringify!($x);
+        let lhs = if let Some(equal_index) = stmt.find('=') {
+            if let Some(variable_name_index) = stmt[0..equal_index].trim_end().rfind(' ') {
+                stmt[variable_name_index + 1..equal_index].trim() // simplify??
+            } else { &stmt }
+        } else { &stmt };
+        unsafe { PROFILER.register(lhs); }
+        $x;
+        unsafe { PROFILER.unregister(lhs); }
+    }
+}
+
+#[macro_export]
 macro_rules! time_open {
     // `()` indicates that the macro takes no argument.
     ( $msg:expr ) => {
