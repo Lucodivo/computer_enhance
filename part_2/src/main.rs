@@ -5,9 +5,6 @@ use std::env;
 use json_parser::JsonValue;
 use haversine_gen::parse_haversine_binary_file;
 
-mod utils;
-use utils::{ printable_large_num };
-
 use profiler::*;
 
 struct PointPair{ x0: f64, y0: f64, x1: f64, y1: f64 }

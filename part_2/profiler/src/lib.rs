@@ -1,9 +1,11 @@
 use clocks::{measure_cpu_freq, read_cpu_timer, clocks_to_millisecs};
-pub use utils::Defer;
+pub use utils::{Defer, printable_freq, printable_large_num};
+
+// NOTE: Absolutely not safe for multi-threaded use.
 
 enum ProfilerNode { 
     Open { stamp: u64, name: &'static str }, 
-    Close { stamp: u64, name: &'static str }
+    Close { stamp: u64 }
 }
 pub struct Profiler { creation_stamp: u64, cpu_freq: u64, nodes: Vec<ProfilerNode> }
 impl Profiler {
@@ -24,21 +26,21 @@ impl Profiler {
         let mut prefix = String::with_capacity(100);
         let mut open_nodes: Vec<&ProfilerNode> = Vec::new();
         let prefix_str_token = "  ";
+        let clocks_column_title = format!("Clocks @ {}", printable_freq(self.cpu_freq));
+        println!("{:<40}{:<30}{}\n", "Block Name", clocks_column_title, "Percent Runtime");
         for node in &self.nodes {
             match node {
                 ProfilerNode::Open{ .. } => {
                     if open_nodes.len() != 0 { prefix.push_str(prefix_str_token); }
                     open_nodes.push(&node);
                 },
-                ProfilerNode::Close{ stamp: close_stamp, name: close_name } => {
+                ProfilerNode::Close{ stamp: close_stamp } => {
                     if let ProfilerNode::Open{ stamp: open_stamp, name: open_name } = open_nodes.pop().expect("A profiler was unregistered without being registered.") {
-                        assert!(open_name == close_name, "Unmatched names for register and unregister found.");
                         let delta_clocks = close_stamp - open_stamp;
                         let percent = delta_clocks as f64 / total_clocks as f64 * 100.0;
                         let title_str = format!("{}:", open_name);
-                        let clocks_str = format!("{} cycles", delta_clocks);
-                        let percent_str = format!("({:.2}%)", percent);
-                        print_strings.push(format!("{}{:<40}{:<30}{}", prefix, title_str, clocks_str, percent_str).to_string());
+                        let percent_str = format!("{:.2}%", percent);
+                        print_strings.push(format!("{}{:<40}{:<30}{}", prefix, title_str, printable_large_num(delta_clocks), percent_str).to_string());
                         if prefix.len() > 0 { for _ in 0..prefix_str_token.len() { prefix.pop(); } }
                     } else { panic!("A profiler was unregistered without being registered."); }
                     if open_nodes.len() == 0 { // found a root node
@@ -52,17 +54,16 @@ impl Profiler {
         }
         assert!(open_nodes.len() == 0, "A profiler was registered without being unregistered.");
 
-        let title_str = "Total runtime:";
-        let time_str = format!("{} cycles ({:.3}ms)", total_clocks, total_millisecs);
-        println!("{:<40}{:<30}", title_str, time_str);
+        let time_str = format!("{} ({:.3}ms)", printable_large_num(total_clocks), total_millisecs);
+        println!("\n{:<40}{:<30}", "Total:", time_str);
 
         println!("\n====== Profiler Results *END* =======\n");
     }
     pub fn register(&mut self, name: &'static str) {
         self.nodes.push(ProfilerNode::Open{ stamp: read_cpu_timer(), name: name });
     }
-    pub fn unregister(&mut self, name: &'static str) {
-        self.nodes.push(ProfilerNode::Close{ stamp: read_cpu_timer(), name: name });
+    pub fn unregister(&mut self) {
+        self.nodes.push(ProfilerNode::Close{ stamp: read_cpu_timer() });
     }
 }
 
@@ -85,7 +86,7 @@ macro_rules! time_function {
         unsafe { PROFILER.register(func_name); }
 
         let _defer_unregister = Defer::new(|| {
-            unsafe { PROFILER.unregister(func_name); }
+            unsafe { PROFILER.unregister(); }
         });
     }
 }
@@ -97,7 +98,7 @@ macro_rules! time_block {
         unsafe { PROFILER.register($msg); }
 
         let _defer_unregister = Defer::new(|| {
-            unsafe { PROFILER.unregister($msg); }
+            unsafe { PROFILER.unregister(); }
         });
     }
 }
@@ -111,7 +112,7 @@ macro_rules! time_assignment_rhs  {
         } else { &stmt[..stmt.len()-1] };
         unsafe { PROFILER.register(rhs); }
         $x;
-        unsafe { PROFILER.unregister(rhs); }
+        unsafe { PROFILER.unregister(); }
     }
 }
 
@@ -126,7 +127,7 @@ macro_rules! time_assignment  {
         } else { &stmt };
         unsafe { PROFILER.register(lhs); }
         $x;
-        unsafe { PROFILER.unregister(lhs); }
+        unsafe { PROFILER.unregister(); }
     }
 }
 
@@ -150,8 +151,8 @@ macro_rules! time_open {
 #[macro_export]
 macro_rules! time_close {
     // `()` indicates that the macro takes no argument.
-    ( $msg:expr ) => {
-        unsafe { PROFILER.unregister($msg); }
+    () => {
+        unsafe { PROFILER.unregister(); }
     }
 }
 
