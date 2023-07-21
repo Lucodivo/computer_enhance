@@ -80,6 +80,22 @@ macro_rules! time_block {
     }
 }
 
+#[macro_export]
+macro_rules! time_open {
+    // `()` indicates that the macro takes no argument.
+    ( $msg:expr ) => {
+        unsafe { PROFILER.register($msg); }
+    }
+}
+
+#[macro_export]
+macro_rules! time_close {
+    // `()` indicates that the macro takes no argument.
+    ( $msg:expr ) => {
+        unsafe { PROFILER.unregister($msg); }
+    }
+}
+
 pub fn profiler_setup() {
     unsafe { PROFILER.init(); }
     time_function!();

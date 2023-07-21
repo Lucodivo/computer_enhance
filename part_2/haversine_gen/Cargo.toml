@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 rand_casey = { path = "../rand_casey" }
 haversine = { path = "../haversine" }
+profiler ={ path = "../profiler" }

@@ -52,9 +52,7 @@ fn main() {
                 assert!(haversine_vals.len() == answer_haversine_vals.len(), 
                     "ERROR: Error data json had {} point pairs but answers file only had {} values.", 
                     haversine_vals.len(), answer_haversine_vals.len());
-                if haversine_mean == answer_haversine_mean { 
-                    println!("Calculated haversine mean matches the answers file!");
-                } else { eprintln!("ERROR: Calculated haversine mean does *NOT* match the answers file."); }
+                if haversine_mean != answer_haversine_mean { eprintln!("ERROR: Calculated haversine mean does *NOT* match the answers file."); }
             },
             Err(e) => {
                 panic!("Failed to read haversine answers file: {}", e);
