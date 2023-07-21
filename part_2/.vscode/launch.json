@@ -28,6 +28,17 @@
             "args": ["cluster", "123123", "20"]
         },
         {
+            "name": "Debug profiler",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--package=profiler"
+                ]
+            }
+        },
+        {
             "name": "Debug json_parser test",
             "type": "lldb",
             "request": "launch",

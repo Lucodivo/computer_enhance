@@ -42,3 +42,4 @@ pub fn measure_cpu_freq(measure_time_ms: u64) -> u64 {
 }
 
 pub fn clocks_to_secs(clocks: u64, cpu_freq: u64) -> f64 { clocks as f64 / cpu_freq as f64 }
+pub fn clocks_to_millisecs(clocks: u64, cpu_freq: u64) -> f64 { clocks_to_secs(clocks, cpu_freq) * 1000.0 }

@@ -1,4 +1,5 @@
 use std::io::{Result, Error, ErrorKind::InvalidData};
+use profiler::*;
 
 // Note: This does not follow spec exactly.
 // Known things that don't match spec:
@@ -29,6 +30,7 @@ enum JsonToken<'a> {
 }
 
 pub fn parse_json_bytes<'a>(json_bytes: &'a [u8]) -> Result<JsonValue<'a>> {
+    time_function!();
     let mut index: usize = 0;
     match parse_token(&json_bytes, &mut index) {
         Ok(JsonToken::ObjectStart) => { return Ok(parse_json_object(json_bytes, &mut index)?); },

@@ -1,15 +1,19 @@
+#![cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
+
 use std::fs;
 use std::env;
 use json_parser::JsonValue;
-use haversine_gen::read_haversine_binary_file;
+use haversine_gen::parse_haversine_binary_file;
 
 mod utils;
-use utils::{ StopWatch, printable_large_num };
+use utils::{ printable_large_num };
+
+use profiler::*;
 
 struct PointPair{ x0: f64, y0: f64, x1: f64, y1: f64 }
 
 fn main() {
-    let mut stopwatch = StopWatch::now();
+    profiler_setup();
 
     let args: Vec<String> = env::args().collect();
 
@@ -19,58 +23,37 @@ fn main() {
 
     assert!(args.len() >= 2 && args.len() <= 3, "{}", usage);
     
+    time_assignments!(
     let input_filename = args[1].parse::<String>().unwrap();
-    let setup_clocks = stopwatch.lap_clocks();
-
     let json_bytes = fs::read(input_filename).expect("Failed to read json input file.");
-    let read_file_clocks = stopwatch.lap_clocks();
-
     let json_root = json_parser::parse_json_bytes(&json_bytes).expect("Failed to parse json input file.");
-    let parse_json_clocks = stopwatch.lap_clocks();
-
     let point_pairs = pairs_from_root_json(&json_root);
-    let pull_point_pairs_clocks = stopwatch.lap_clocks();
-    
     let haversine_vals = point_pairs.iter().map(|pp| haversine::haversine(pp.x0, pp.y0, pp.x1, pp.y1, None)).collect::<Vec<f64>>();
-    let haversine_clocks = stopwatch.lap_clocks();
-
     let pair_count_f64 = point_pairs.len() as f64;
     let haversine_mean = haversine_vals.iter().fold(0.0_f64, |acc, &x| acc + (x / pair_count_f64));
-    let haversine_mean_clocks = stopwatch.lap_clocks();
-
-    let final_clocks = stopwatch.total_clocks();
-
-    println!("Input file size:\t{} bytes", printable_large_num(json_bytes.len() as u64));
-    println!("Pair count:\t\t{}", printable_large_num(point_pairs.len() as u64));
-    println!("Haversine mean:\t\t{}\n", haversine_mean);
-    println!("Total time:\t\t{:2}ms (CPU freq {}Hz)", stopwatch.total_secs() * 1_000_f64, printable_large_num(stopwatch.cpu_freq));
-    println!("Startup:\t\t{}\t\t({:.2}%)", printable_large_num(setup_clocks), setup_clocks as f64 / final_clocks as f64 * 100.0);
-    println!("Read:\t\t\t{}\t({:.2}%)", printable_large_num(read_file_clocks), read_file_clocks as f64 / final_clocks as f64 * 100.0);
-    println!("Generic JSON Parse:\t{}\t({:.2}%)", printable_large_num(parse_json_clocks), parse_json_clocks as f64 / final_clocks as f64 * 100.0);
-    println!("Generic JSON to Pairs:\t{}\t({:.2}%)", printable_large_num(pull_point_pairs_clocks), pull_point_pairs_clocks as f64 / final_clocks as f64 * 100.0);
-    println!("JSON to Pairs (TOTAL):\t{}\t({:.2}%)", printable_large_num(pull_point_pairs_clocks + parse_json_clocks), (pull_point_pairs_clocks + parse_json_clocks) as f64 / final_clocks as f64 * 100.0);
-    println!("Haversine:\t\t{}\t({:.2}%)", printable_large_num(haversine_clocks), haversine_clocks as f64 / final_clocks as f64 * 100.0);
-    println!("Mean:\t\t\t{}\t({:.2}%)", printable_large_num(haversine_mean_clocks), haversine_mean_clocks as f64 / final_clocks as f64 * 100.0);
+    );
 
     if args.len() == 3 {
+        time_block!("Check answers file");
         let answers_filename = args[2].parse::<String>().unwrap();
-        match read_haversine_binary_file(&answers_filename) {
+        match parse_haversine_binary_file(&answers_filename) {
             Ok((answer_haversine_vals, answer_haversine_mean)) => {
                 assert!(haversine_vals.len() == answer_haversine_vals.len(), 
                     "ERROR: Error data json had {} point pairs but answers file only had {} values.", 
                     haversine_vals.len(), answer_haversine_vals.len());
-                if haversine_mean == answer_haversine_mean { 
-                    println!("Calculated haversine mean matches the answers file!");
-                } else { eprintln!("ERROR: Calculated haversine mean does *NOT* match the answers file."); }
+                if haversine_mean != answer_haversine_mean { eprintln!("ERROR: Calculated haversine mean does *NOT* match the answers file."); }
             },
             Err(e) => {
                 panic!("Failed to read haversine answers file: {}", e);
             }
         }
     }
+
+    profiler_teardown();
 }
 
 fn pairs_from_root_json(json_root: &JsonValue) -> Vec<PointPair> {
+    time_function!();
     let mut point_pairs = Vec::<PointPair>::new();
 
     if let JsonValue::Object{ key_val_pairs: kvp } = json_root {

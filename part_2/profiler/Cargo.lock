@@ -10,18 +10,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "haversine"
-version = "0.1.0"
-
-[[package]]
-name = "json_parser"
-version = "0.1.0"
-dependencies = [
- "haversine",
- "profiler",
-]
-
-[[package]]
 name = "profiler"
 version = "0.1.0"
 dependencies = [
