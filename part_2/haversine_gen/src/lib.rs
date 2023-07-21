@@ -3,7 +3,7 @@ use profiler::*;
 
 const ELEMENT_SIZE: usize = std::mem::size_of::<f64>();
 
-pub fn read_haversine_binary_file(filename: &str) -> std::io::Result<(Vec<f64>, f64)> {
+pub fn parse_haversine_binary_file(filename: &str) -> std::io::Result<(Vec<f64>, f64)> {
     time_function!();
     let file_bytes = fs::read(filename)?;
     let file_size = file_bytes.len();

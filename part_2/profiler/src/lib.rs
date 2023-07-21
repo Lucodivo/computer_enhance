@@ -1,4 +1,4 @@
-use clocks::{measure_cpu_freq, read_cpu_timer, clocks_to_secs};
+use clocks::{measure_cpu_freq, read_cpu_timer, clocks_to_millisecs};
 pub use utils::Defer;
 
 enum ProfilerNode { 
@@ -14,12 +14,20 @@ impl Profiler {
     fn deinit(&self) {
         let now = read_cpu_timer();
         let total_clocks = now - self.creation_stamp;
-        let total_secs = clocks_to_secs(total_clocks, self.cpu_freq);        
+        let total_millisecs = clocks_to_millisecs(total_clocks, self.cpu_freq);
 
+        println!("\n====== Profiler Results *START* =======\n");
+        
+        let measurements = self.nodes.len() / 2;
+        let mut print_strings = Vec::<String>::with_capacity(measurements);
+
+        let mut prefix = String::with_capacity(100);
         let mut open_nodes: Vec<&ProfilerNode> = Vec::new();
+        let prefix_str_token = "  ";
         for node in &self.nodes {
             match node {
                 ProfilerNode::Open{ .. } => {
+                    if open_nodes.len() != 0 { prefix.push_str(prefix_str_token); }
                     open_nodes.push(&node);
                 },
                 ProfilerNode::Close{ stamp: close_stamp, name: close_name } => {
@@ -27,14 +35,28 @@ impl Profiler {
                         assert!(open_name == close_name, "Unmatched names for register and unregister found.");
                         let delta_clocks = close_stamp - open_stamp;
                         let percent = delta_clocks as f64 / total_clocks as f64 * 100.0;
-                        println!("{}: {} cycles ({:.2}%)", open_name, delta_clocks, percent);
-                    } else { panic!("A profiler was unregistered without being registered."); } 
+                        let title_str = format!("{}:", open_name);
+                        let clocks_str = format!("{} cycles", delta_clocks);
+                        let percent_str = format!("({:.2}%)", percent);
+                        print_strings.push(format!("{}{:<40}{:<30}{}", prefix, title_str, clocks_str, percent_str).to_string());
+                        if prefix.len() > 0 { for _ in 0..prefix_str_token.len() { prefix.pop(); } }
+                    } else { panic!("A profiler was unregistered without being registered."); }
+                    if open_nodes.len() == 0 { // found a root node
+                        for s in print_strings.iter().rev() {
+                            println!("{}", s);
+                        }
+                        print_strings.clear();
+                    }
                 }
             }
         }
         assert!(open_nodes.len() == 0, "A profiler was registered without being unregistered.");
 
-        println!("Total: {} cycles ({} seconds)", total_clocks, total_secs);
+        let title_str = "Total runtime:";
+        let time_str = format!("{} cycles ({:.3}ms)", total_clocks, total_millisecs);
+        println!("{:<40}{:<30}", title_str, time_str);
+
+        println!("\n====== Profiler Results *END* =======\n");
     }
     pub fn register(&mut self, name: &'static str) {
         self.nodes.push(ProfilerNode::Open{ stamp: read_cpu_timer(), name: name });
@@ -81,7 +103,7 @@ macro_rules! time_block {
 }
 
 #[macro_export]
-macro_rules! time_stmt_rhsmsg  {
+macro_rules! time_assignment_rhs  {
     ($x:stmt) => {
         let stmt = stringify!($x);
         let rhs = if let Some(equal_index) = stmt.find('=') {
@@ -94,7 +116,7 @@ macro_rules! time_stmt_rhsmsg  {
 }
 
 #[macro_export]
-macro_rules! time_stmt_lhsmsg  {
+macro_rules! time_assignment  {
     ($x:stmt) => {
         let stmt = stringify!($x);
         let lhs = if let Some(equal_index) = stmt.find('=') {
@@ -106,6 +128,15 @@ macro_rules! time_stmt_lhsmsg  {
         $x;
         unsafe { PROFILER.unregister(lhs); }
     }
+}
+
+#[macro_export]
+macro_rules! time_assignments {
+    ($($x:stmt);* $(;)?) => {
+        $(
+            time_assignment!($x);
+        )*
+    };
 }
 
 #[macro_export]
