@@ -2,12 +2,14 @@ use clocks::{measure_cpu_freq, read_cpu_timer, clocks_to_millisecs};
 pub use utils::{Defer, printable_freq, printable_large_num};
 
 // NOTE: Absolutely not safe for multi-threaded use.
-
+#[derive(Clone, Copy)]
 enum ProfilerNode { 
     Open { stamp: u64, name: &'static str }, 
     Close { stamp: u64 }
 }
-pub struct Profiler { creation_stamp: u64, cpu_freq: u64, nodes: Vec<ProfilerNode> }
+
+const NODES_CAPACITY: usize = 4096;
+pub struct Profiler { creation_stamp: u64, cpu_freq: u64, nodes: [ProfilerNode; 4096], node_count: usize }
 impl Profiler {
     fn init(&mut self) {
         self.cpu_freq = measure_cpu_freq(100);
@@ -24,11 +26,11 @@ impl Profiler {
         let mut print_strings = Vec::<String>::with_capacity(measurements);
 
         let mut prefix = String::with_capacity(100);
-        let mut open_nodes: Vec<&ProfilerNode> = Vec::new();
+        let mut open_nodes: Vec<&ProfilerNode> = Vec::with_capacity(NODES_CAPACITY / 2);
         let prefix_str_token = "  ";
         let clocks_column_title = format!("Clocks @ {}", printable_freq(self.cpu_freq));
         println!("{:<40}{:<30}{}\n", "Block Name", clocks_column_title, "Percent Runtime");
-        for node in &self.nodes {
+        for node in &self.nodes[0..self.node_count] {
             match node {
                 ProfilerNode::Open{ .. } => {
                     if open_nodes.len() != 0 { prefix.push_str(prefix_str_token); }
@@ -60,14 +62,16 @@ impl Profiler {
         println!("\n====== Profiler Results *END* =======\n");
     }
     pub fn register(&mut self, name: &'static str) {
-        self.nodes.push(ProfilerNode::Open{ stamp: read_cpu_timer(), name: name });
+        self.nodes[self.node_count] = ProfilerNode::Open{ stamp: read_cpu_timer(), name: name };
+        self.node_count += 1;
     }
     pub fn unregister(&mut self) {
-        self.nodes.push(ProfilerNode::Close{ stamp: read_cpu_timer() });
+        self.nodes[self.node_count] = ProfilerNode::Close{ stamp: read_cpu_timer() };
+        self.node_count += 1;
     }
 }
 
-pub static mut PROFILER: Profiler = Profiler{ creation_stamp: 0, cpu_freq: 0, nodes: Vec::<ProfilerNode>::new() };
+pub static mut PROFILER: Profiler = Profiler{ creation_stamp: 0, cpu_freq: 0, nodes: [ProfilerNode::Open{ stamp: 0, name: "_"}; NODES_CAPACITY], node_count: 0 };
 
 /*
 Calling this macro twice in the same function will *NOT* compile.
