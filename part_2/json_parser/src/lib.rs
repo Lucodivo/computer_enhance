@@ -41,20 +41,21 @@ pub fn parse_json_bytes<'a>(json_bytes: &'a [u8]) -> Result<JsonValue<'a>> {
 }
 
 fn parse_json_object<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
+    time_function!();
     let mut members = Vec::<(&'a [u8], JsonValue<'a>)>::new();
     loop {
         match parse_token(json_bytes, advancing_index)? {
             JsonToken::String(key_str) => {
-                match parse_token(json_bytes, advancing_index)? {
-                    JsonToken::ObjectStart => { members.push((key_str, parse_json_object(json_bytes, advancing_index)?)); },
-                    JsonToken::ArrayStart => { members.push((key_str, parse_json_array(json_bytes, advancing_index)?)); },
-                    JsonToken::String(s) => { members.push((key_str, JsonValue::String(s))); },
-                    JsonToken::Number(n) => { members.push((key_str, JsonValue::Number(n))); },
-                    JsonToken::Boolean(b) => { members.push((key_str, JsonValue::Boolean(b))); },
-                    JsonToken::Null => { members.push((key_str, JsonValue::Null)); },
-                    JsonToken::ObjectTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected object member value but found end of object.")); },
+                members.push((key_str, match parse_token(json_bytes, advancing_index)? {
+                    JsonToken::ObjectStart => parse_json_object(json_bytes, advancing_index)?,
+                    JsonToken::ArrayStart => parse_json_array(json_bytes, advancing_index)?,
+                    JsonToken::String(s) => JsonValue::String(s),
+                    JsonToken::Number(n) => JsonValue::Number(n),
+                    JsonToken::Boolean(b) => JsonValue::Boolean(b),
+                    JsonToken::Null => JsonValue::Null,
+                    JsonToken::ObjectTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected object member value but found end of object.")); }
                     JsonToken::ArrayTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected object member value but found end of array.")); }
-                }
+                }));
             },
             JsonToken::ObjectTerminate => { return Ok(JsonValue::Object{ key_val_pairs: members }); },
             _ => { return Err(Error::new(InvalidData, "ERROR: Expected a string for a key in a json object.")); }
@@ -63,23 +64,25 @@ fn parse_json_object<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> R
 }
 
 fn parse_json_array<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
+    time_function!();
     let mut elements = Vec::<JsonValue<'a>>::new();
     loop {
-        match parse_token(json_bytes, advancing_index)? {
-            JsonToken::ObjectStart => { elements.push(parse_json_object(json_bytes, advancing_index)?); },
-            JsonToken::ArrayStart => { elements.push(parse_json_array(json_bytes, advancing_index)?); },
+        elements.push(match parse_token(json_bytes, advancing_index)? {
+            JsonToken::ObjectStart => parse_json_object(json_bytes, advancing_index)?,
+            JsonToken::ArrayStart => parse_json_array(json_bytes, advancing_index)?,
+            JsonToken::String(s) => JsonValue::String(s),
+            JsonToken::Number(n) => JsonValue::Number(n),
+            JsonToken::Boolean(b) => JsonValue::Boolean(b),
+            JsonToken::Null => JsonValue::Null,
             JsonToken::ArrayTerminate => { return Ok(JsonValue::Array{ elements: elements }); },
-            JsonToken::String(s) => { elements.push(JsonValue::String(s)); },
-            JsonToken::Number(n) => { elements.push(JsonValue::Number(n)); },
-            JsonToken::Boolean(b) => { elements.push(JsonValue::Boolean(b)); },
-            JsonToken::Null => { elements.push(JsonValue::Null); },
             JsonToken::ObjectTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected array element but found end of an object.")); }
-        }
+        })
     }
 
 }
 
 fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonToken<'a>> {
+    time_function!();
 
     while *advancing_index < json_bytes.len() {
 
@@ -110,18 +113,6 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
                         _ => { *advancing_index += 1; }
                     }
                 }
-            },
-            b't' => {
-                if check_slice(b"rue", advancing_index) { return Ok(JsonToken::Boolean(true)); }
-                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 't'")); }
-            },
-            b'f' => {
-                if check_slice(b"alse", advancing_index) { return Ok(JsonToken::Boolean(false)); } 
-                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'f'")); }
-            },
-            b'n' => {
-                if check_slice(b"ull", advancing_index) { return Ok(JsonToken::Null); }
-                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'n'")); }
             },
             b'0'..=b'9'|b'-'|b'+' => {
 
@@ -182,10 +173,8 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
                     if json_bytes[*advancing_index] == b'-' {
                         exp_sign = -1;
                         *advancing_index += 1;
-                    } else {
-                        if byte == b'+' { 
-                            *advancing_index += 1; 
-                        }
+                    } else if byte == b'+' { 
+                        *advancing_index += 1; 
                     }
 
                     while *advancing_index < json_bytes.len() {
@@ -207,6 +196,18 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
                 return Ok(JsonToken::Number(sign * exp_multiplier * magnitude));
             },
             b' ' | b'\t' | b'\n' | b'\r' | b','|b':' => {}, // ignore whitespace, commas, colons
+            b't' => {
+                if check_slice(b"rue", advancing_index) { return Ok(JsonToken::Boolean(true)); }
+                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 't'")); }
+            },
+            b'f' => {
+                if check_slice(b"alse", advancing_index) { return Ok(JsonToken::Boolean(false)); } 
+                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'f'")); }
+            },
+            b'n' => {
+                if check_slice(b"ull", advancing_index) { return Ok(JsonToken::Null); }
+                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'n'")); }
+            },
             _ => { return Err(Error::new(InvalidData, "ERROR: Parsing invalid token.")); } 
         }
     }

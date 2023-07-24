@@ -1,15 +1,54 @@
-use clocks::{measure_cpu_freq, read_cpu_timer, clocks_to_millisecs};
-pub use utils::{Defer, printable_freq, printable_large_num};
+// NOTE: This profiler is absolutely not multi-threaded safe
+pub use utils::Defer;
+pub use once_cell::sync::Lazy;
 
-// NOTE: Absolutely not safe for multi-threaded use.
+use clocks::{measure_cpu_freq, clocks_to_millisecs, read_cpu_timer};
+use utils::{ printable_freq, printable_large_num};
+
 #[derive(Clone, Copy)]
-enum ProfilerNode { 
-    Open { stamp: u64, name: &'static str }, 
-    Close { stamp: u64 }
+struct Profile { 
+    tag: &'static str,
+    duration: u64,
+    open_stamp: u64,
+    open_count: u64,
+    closed_count: u64,
+    child_duration: u64,
+    current_scope: usize
 }
 
-const NODES_CAPACITY: usize = 4096;
-pub struct Profiler { creation_stamp: u64, cpu_freq: u64, nodes: [ProfilerNode; 4096], node_count: usize }
+// NOTE: This is only used for the profiler macros. DO NOT use this for anything else. 
+#[allow(non_snake_case)]
+pub fn __PROFILER__COUNTER__() -> usize {
+    static mut COUNTER: usize = 0;
+    unsafe {
+        // Counting starting at 1 is intended and not to be changed
+        // 0 is reserved for a default value
+        COUNTER += 1;
+        COUNTER
+    }
+}
+
+const PROFILE_CAPACITY: usize = 4096;
+pub struct Profiler { 
+    creation_stamp: u64, 
+    cpu_freq: u64, 
+    profiles: [Profile; PROFILE_CAPACITY],
+    current_scope: usize
+}
+pub static mut PROFILER: Profiler = Profiler{ 
+    creation_stamp: 0, 
+    cpu_freq: 0, 
+    profiles: [Profile{ 
+        tag: "_", 
+        duration: 0, 
+        open_stamp: 0, 
+        open_count: 0, 
+        closed_count: 0, 
+        child_duration: 0, 
+        current_scope: 0 
+    }; PROFILE_CAPACITY],
+    current_scope: 0
+};
 impl Profiler {
     fn init(&mut self) {
         self.cpu_freq = measure_cpu_freq(100);
@@ -22,56 +61,57 @@ impl Profiler {
 
         println!("\n====== Profiler Results *START* =======\n");
         
-        let measurements = self.nodes.len() / 2;
-        let mut print_strings = Vec::<String>::with_capacity(measurements);
-
-        let mut prefix = String::with_capacity(100);
-        let mut open_nodes: Vec<&ProfilerNode> = Vec::with_capacity(NODES_CAPACITY / 2);
-        let prefix_str_token = "  ";
         let clocks_column_title = format!("Clocks @ {}", printable_freq(self.cpu_freq));
-        println!("{:<40}{:<30}{}\n", "Block Name", clocks_column_title, "Percent Runtime");
-        for node in &self.nodes[0..self.node_count] {
-            match node {
-                ProfilerNode::Open{ .. } => {
-                    if open_nodes.len() != 0 { prefix.push_str(prefix_str_token); }
-                    open_nodes.push(&node);
-                },
-                ProfilerNode::Close{ stamp: close_stamp } => {
-                    if let ProfilerNode::Open{ stamp: open_stamp, name: open_name } = open_nodes.pop().expect("A profiler was unregistered without being registered.") {
-                        let delta_clocks = close_stamp - open_stamp;
-                        let percent = delta_clocks as f64 / total_clocks as f64 * 100.0;
-                        let title_str = format!("{}:", open_name);
-                        let percent_str = format!("{:.2}%", percent);
-                        print_strings.push(format!("{}{:<40}{:<30}{}", prefix, title_str, printable_large_num(delta_clocks), percent_str).to_string());
-                        if prefix.len() > 0 { for _ in 0..prefix_str_token.len() { prefix.pop(); } }
-                    } else { panic!("A profiler was unregistered without being registered."); }
-                    if open_nodes.len() == 0 { // found a root node
-                        for s in print_strings.iter().rev() {
-                            println!("{}", s);
-                        }
-                        print_strings.clear();
-                    }
-                }
-            }
+        println!("{:<40}{:<25}{:<10}{}\n", "Tag (Invocations)", clocks_column_title, "Percent", "w/ Children");
+
+        let mut index = 1;
+        while self.profiles[index].open_count > 0 {
+            let profile = &self.profiles[index];
+            assert!(profile.open_count == profile.closed_count, "Profile, with tag {}, was not registered/unregistered an equal amount of times.", profile.tag);
+            let duration_minus_children = profile.duration - profile.child_duration;
+            let percent_minus_children = duration_minus_children as f64 / total_clocks as f64 * 100.0;
+            let percent_with_children = profile.duration as f64 / total_clocks as f64 * 100.0;
+            let title_str = format!("{} ({}):", profile.tag, printable_large_num(profile.closed_count));
+            println!("{:<40}{:<25}{:<10.2}{:.2}", title_str, printable_large_num(duration_minus_children), percent_minus_children, percent_with_children);
+            index += 1;
         }
-        assert!(open_nodes.len() == 0, "A profiler was registered without being unregistered.");
+        assert!(self.current_scope == 0, "A profiler was registered without being unregistered.");
 
         let time_str = format!("{} ({:.3}ms)", printable_large_num(total_clocks), total_millisecs);
-        println!("\n{:<40}{:<30}", "Total:", time_str);
+        println!("\n{:<40}{:<25}", "Total:", time_str);
 
         println!("\n====== Profiler Results *END* =======\n");
     }
-    pub fn register(&mut self, name: &'static str) {
-        self.nodes[self.node_count] = ProfilerNode::Open{ stamp: read_cpu_timer(), name: name };
-        self.node_count += 1;
+
+    pub fn register(&mut self, tag: &'static str, index: usize) {
+
+        let profile = &mut self.profiles[index];
+
+        if profile.open_count == profile.closed_count {
+            profile.open_count += 1;
+            profile.tag = tag;
+            profile.current_scope = self.current_scope;
+            self.current_scope = index;
+            profile.open_stamp = read_cpu_timer();
+        } else { profile.open_count += 1; }
     }
     pub fn unregister(&mut self) {
-        self.nodes[self.node_count] = ProfilerNode::Close{ stamp: read_cpu_timer() };
-        self.node_count += 1;
-    }
-}
 
-pub static mut PROFILER: Profiler = Profiler{ creation_stamp: 0, cpu_freq: 0, nodes: [ProfilerNode::Open{ stamp: 0, name: "_"}; NODES_CAPACITY], node_count: 0 };
+        let index = self.current_scope;
+        let profile = &mut self.profiles[index];
+        profile.closed_count += 1;
+
+        if profile.open_count == profile.closed_count {
+            let duration = read_cpu_timer() - profile.open_stamp;
+            profile.open_stamp = 0;
+            profile.duration += duration;
+            self.current_scope = profile.current_scope;
+            profile.current_scope = 0;
+            self.profiles[self.current_scope].child_duration += duration;
+        }
+    }
+
+}
 
 /*
 Calling this macro twice in the same function will *NOT* compile.
@@ -87,9 +127,12 @@ macro_rules! time_function {
         let func_name_end = name.len() - 3; // remove the trailing "::f"
         let func_name = &name[func_name_start..func_name_end];
 
-        unsafe { PROFILER.register(func_name); }
+        unsafe {
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
+            PROFILER.register(func_name, *PROFILE_INDEX); 
+        }
 
-        let _defer_unregister = Defer::new(|| {
+        let _defer_unregister = Defer::new( || {
             unsafe { PROFILER.unregister(); }
         });
     }
@@ -99,8 +142,10 @@ macro_rules! time_function {
 macro_rules! time_block {
     // `()` indicates that the macro takes no argument.
     ( $msg:expr ) => {
-        unsafe { PROFILER.register($msg); }
-
+        unsafe { 
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
+            PROFILER.register($msg, *PROFILE_INDEX);
+        }
         let _defer_unregister = Defer::new(|| {
             unsafe { PROFILER.unregister(); }
         });
@@ -114,7 +159,10 @@ macro_rules! time_assignment_rhs  {
         let rhs = if let Some(equal_index) = stmt.find('=') {
             stmt[equal_index + 1..stmt.len()-1].trim_start()
         } else { &stmt[..stmt.len()-1] };
-        unsafe { PROFILER.register(rhs); }
+        unsafe { 
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
+            PROFILER.register(rhs, *PROFILE_INDEX); 
+        }
         $x;
         unsafe { PROFILER.unregister(); }
     }
@@ -129,7 +177,10 @@ macro_rules! time_assignment  {
                 stmt[variable_name_index + 1..equal_index].trim() // simplify??
             } else { &stmt }
         } else { &stmt };
-        unsafe { PROFILER.register(lhs); }
+        unsafe {        
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() }); 
+            PROFILER.register(lhs, *PROFILE_INDEX); 
+        }
         $x;
         unsafe { PROFILER.unregister(); }
     }
@@ -148,7 +199,10 @@ macro_rules! time_assignments {
 macro_rules! time_open {
     // `()` indicates that the macro takes no argument.
     ( $msg:expr ) => {
-        unsafe { PROFILER.register($msg); }
+        unsafe {            
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() }); 
+            PROFILER.register($msg, *PROFILE_INDEX); 
+        }
     }
 }
 
@@ -168,13 +222,4 @@ pub fn profiler_setup() {
 pub fn profiler_teardown() {
     // NOTE: profiling teardown with PROFILER does not really work because the profiler will be closed on exit.
     unsafe { PROFILER.deinit(); }
-}
-
-pub fn test() {
-    profiler_setup();
-    {
-        time_block!("print hello block");
-        println!("Hello, from non-macro println!");
-    }
-    profiler_teardown();
 }
