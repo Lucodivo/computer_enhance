@@ -33,10 +33,10 @@ pub fn parse_json_bytes<'a>(json_bytes: &'a [u8]) -> Result<JsonValue<'a>> {
     time_function!();
     let mut index: usize = 0;
     match parse_token(&json_bytes, &mut index) {
-        Ok(JsonToken::ObjectStart) => { return Ok(parse_json_object(json_bytes, &mut index)?); },
-        Ok(JsonToken::ArrayStart) => { return Ok(parse_json_array(json_bytes, &mut index)?); },
-        Ok(_) => { return Err(Error::new(InvalidData, "ERROR: Json must have an object or array as the root. Nothing may exist but whitespace after the root.")); },
-        Err(e) => { return Err(e); }
+        Ok(JsonToken::ObjectStart) => Ok(parse_json_object(json_bytes, &mut index)?),
+        Ok(JsonToken::ArrayStart) => Ok(parse_json_array(json_bytes, &mut index)?),
+        Ok(_) => Err(Error::new(InvalidData, "ERROR: Json must have an object or array as the root. Nothing may exist but whitespace after the root.")),
+        Err(e) => Err(e)
     }
 }
 
@@ -78,7 +78,6 @@ fn parse_json_array<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Re
             JsonToken::ObjectTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected array element but found end of an object.")); }
         })
     }
-
 }
 
 fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonToken<'a>> {
@@ -90,16 +89,16 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
             let start_i = *i;
             *i += s.len();
             if json_bytes.len() < *i { return false; }
-            return json_bytes[start_i..*i].eq(s);
+            return json_bytes[start_i..*i].eq(s)
         };
 
         let mut byte = json_bytes[*advancing_index];
         *advancing_index += 1; // index first, as it is expected to advance before returning from function
         match byte {
-            b'{' => { return Ok(JsonToken::ObjectStart);},
-            b'}' => { return Ok(JsonToken::ObjectTerminate); },
-            b'[' => { return Ok(JsonToken::ArrayStart); },
-            b']' => { return Ok(JsonToken::ArrayTerminate); },
+            b'{' => { return Ok(JsonToken::ObjectStart) },
+            b'}' => { return Ok(JsonToken::ObjectTerminate) },
+            b'[' => { return Ok(JsonToken::ArrayStart) },
+            b']' => { return Ok(JsonToken::ArrayTerminate) },
             b'"' => {
                 let start_str_index = *advancing_index;
                 while *advancing_index < json_bytes.len() {
@@ -197,16 +196,16 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
             },
             b' ' | b'\t' | b'\n' | b'\r' | b','|b':' => {}, // ignore whitespace, commas, colons
             b't' => {
-                if check_slice(b"rue", advancing_index) { return Ok(JsonToken::Boolean(true)); }
-                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 't'")); }
+                return if check_slice(b"rue", advancing_index) { Ok(JsonToken::Boolean(true)) }
+                else { Err(Error::new(InvalidData, "ERROR: Invalid token starting with 't'")) }
             },
             b'f' => {
-                if check_slice(b"alse", advancing_index) { return Ok(JsonToken::Boolean(false)); } 
-                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'f'")); }
+                return if check_slice(b"alse", advancing_index) { Ok(JsonToken::Boolean(false)) } 
+                else { Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'f'")) }
             },
             b'n' => {
-                if check_slice(b"ull", advancing_index) { return Ok(JsonToken::Null); }
-                else { return Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'n'")); }
+                return if check_slice(b"ull", advancing_index) { Ok(JsonToken::Null) }
+                else { Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'n'")) }
             },
             _ => { return Err(Error::new(InvalidData, "ERROR: Parsing invalid token.")); } 
         }

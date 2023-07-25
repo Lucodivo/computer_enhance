@@ -12,7 +12,6 @@ struct PointPair{ x0: f64, y0: f64, x1: f64, y1: f64 }
 fn main() {
     profiler_setup();
 
-    time_open!("get args");
     let args: Vec<String> = env::args().collect();
 
     // TODO: Add print and performance options
@@ -21,7 +20,6 @@ fn main() {
 
     let input_filename = args[1].parse::<String>().unwrap();
     assert!(args.len() >= 2 && args.len() <= 3, "{}", usage);
-    time_close!();
     
     time_assignments!(
     let json_bytes = fs::read(input_filename).expect("Failed to read json input file.");
