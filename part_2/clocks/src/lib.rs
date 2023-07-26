@@ -1,8 +1,8 @@
 use std::mem;
 use core::arch::x86_64::_rdtsc;
 
+#[inline(always)]
 pub fn read_cpu_timer() -> u64 {
-    // RDTSC — Read Time-Stamp Counter
     unsafe { _rdtsc() }
 }
 

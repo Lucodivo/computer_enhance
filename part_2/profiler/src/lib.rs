@@ -115,6 +115,7 @@ impl Profiler {
         profile_stamp.index = index;
         profile_stamp.stamp = read_cpu_timer();
     }
+    
     pub fn unregister(&mut self) {
         let now = read_cpu_timer();
 
@@ -147,16 +148,17 @@ Calling this macro twice in the same function will *NOT* compile.
 macro_rules! time_function {
     // `()` indicates that the macro takes no argument.
     () => {
-        fn f() {}
-        fn type_name_of<T>(_: T) -> &'static str { std::any::type_name::<T>() }
-        let name = type_name_of(f);
-        let func_name_start = &name[..name.len() - 3].rfind(':').expect("Failed to find function name.") + 1;
-        let func_name_end = name.len() - 3; // remove the trailing "::f"
-        let func_name = &name[func_name_start..func_name_end];
-
         unsafe {
+            fn f() {}
+            fn type_name_of<T>(_: T) -> &'static str { std::any::type_name::<T>() }
+            static PROFILE_TAG: Lazy<&'static str> = Lazy::new(|| { 
+                let name = type_name_of(f);
+                let func_name_start = &name[..name.len() - 3].rfind(':').expect("Failed to find function name.") + 1;
+                let func_name_end = name.len() - 3; // remove the trailing "::f"
+                &name[func_name_start..func_name_end]
+             });
             static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
-            PROFILER.register(func_name, *PROFILE_INDEX); 
+            PROFILER.register(*PROFILE_TAG, *PROFILE_INDEX); 
         }
 
         let _defer_unregister = Defer::new( || {
@@ -182,13 +184,15 @@ macro_rules! time_block {
 #[macro_export]
 macro_rules! time_assignment_rhs  {
     ($x:stmt) => {
-        let stmt = stringify!($x);
-        let rhs = if let Some(equal_index) = stmt.find('=') {
-            stmt[equal_index + 1..stmt.len()-1].trim_start()
-        } else { &stmt[..stmt.len()-1] };
         unsafe { 
+            static PROFILE_TAG: Lazy<&'static str> = Lazy::new(|| {
+                let stmt = stringify!($x);
+                if let Some(equal_index) = stmt.find('=') {
+                    stmt[equal_index + 1..stmt.len()-1].trim_start()
+                } else { &stmt[..stmt.len()-1] };
+            });
             static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
-            PROFILER.register(rhs, *PROFILE_INDEX); 
+            PROFILER.register(*PROFILE_TAG, *PROFILE_INDEX); 
         }
         $x;
         unsafe { PROFILER.unregister(); }
@@ -198,15 +202,17 @@ macro_rules! time_assignment_rhs  {
 #[macro_export]
 macro_rules! time_assignment  {
     ($x:stmt) => {
-        let stmt = stringify!($x);
-        let lhs = if let Some(equal_index) = stmt.find('=') {
-            if let Some(variable_name_index) = stmt[0..equal_index].trim_end().rfind(' ') {
-                stmt[variable_name_index + 1..equal_index].trim() // simplify??
-            } else { &stmt }
-        } else { &stmt };
         unsafe {        
+            static PROFILE_TAG: Lazy<&'static str> = Lazy::new(|| {
+                let stmt = stringify!($x);
+                if let Some(equal_index) = stmt.find('=') {
+                    if let Some(variable_name_index) = stmt[0..equal_index].trim_end().rfind(' ') {
+                        stmt[variable_name_index + 1..equal_index].trim() // simplify??
+                    } else { &stmt }
+                } else { &stmt }
+            });
             static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() }); 
-            PROFILER.register(lhs, *PROFILE_INDEX); 
+            PROFILER.register(*PROFILE_TAG, *PROFILE_INDEX); 
         }
         $x;
         unsafe { PROFILER.unregister(); }
@@ -224,7 +230,6 @@ macro_rules! time_assignments {
 
 #[macro_export]
 macro_rules! time_open {
-    // `()` indicates that the macro takes no argument.
     ( $msg:expr ) => {
         unsafe {            
             static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() }); 
@@ -235,17 +240,11 @@ macro_rules! time_open {
 
 #[macro_export]
 macro_rules! time_close {
-    // `()` indicates that the macro takes no argument.
     () => {
         unsafe { PROFILER.unregister(); }
     }
 }
 
-pub fn profiler_setup() {
-    unsafe { PROFILER.init(); }
-}
+pub fn profiler_setup() { unsafe { PROFILER.init(); } }
 
-pub fn profiler_teardown() {
-    // NOTE: profiling teardown with PROFILER does not really work because the profiler will be closed on exit.
-    unsafe { PROFILER.deinit(); }
-}
+pub fn profiler_teardown() { unsafe { PROFILER.deinit(); } }

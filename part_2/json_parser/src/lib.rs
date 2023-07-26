@@ -1,4 +1,6 @@
 use std::io::{Result, Error, ErrorKind::InvalidData};
+
+#[allow(unused_imports)]
 use profiler::*;
 
 // Note: This does not follow spec exactly.
@@ -10,11 +12,11 @@ use profiler::*;
 //      - HashMap/FxHashMap were slower than linear searching in my limited usecase.
 //  - Strings are returned as just the bytes between two non-escaped quotes. Escape slashes and their following character are not removed.
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum JsonValue<'a> {
-    Object{ key_val_pairs: Vec<(&'a [u8], JsonValue<'a>)> }, // Note: "Keys" are not unique within a json object :(
-    Array{ elements: Vec<JsonValue<'a>> },
-    String(&'a [u8]),
+    Object{ start_index: usize, end_index: usize }, // Note: "Keys" are not unique within a json object :(
+    Array{ start_index: usize, end_index: usize },
+    String(&'a[u8]),
     Number(f64),
     Boolean(bool),
     Null
@@ -23,67 +25,126 @@ pub enum JsonValue<'a> {
 enum JsonToken<'a> {
     ObjectStart, ObjectTerminate,
     ArrayStart, ArrayTerminate,
-    String(&'a [u8]),
+    String(&'a[u8]),
     Number(f64),
     Boolean(bool),
     Null
 }
 
-pub fn parse_json_bytes<'a>(json_bytes: &'a [u8]) -> Result<JsonValue<'a>> {
-    time_function!();
-    let mut index: usize = 0;
-    match parse_token(&json_bytes, &mut index) {
-        Ok(JsonToken::ObjectStart) => Ok(parse_json_object(json_bytes, &mut index)?),
-        Ok(JsonToken::ArrayStart) => Ok(parse_json_array(json_bytes, &mut index)?),
-        Ok(_) => Err(Error::new(InvalidData, "ERROR: Json must have an object or array as the root. Nothing may exist but whitespace after the root.")),
-        Err(e) => Err(e)
-    }
+#[derive(Debug)]
+struct JsonData<'a> {
+    bytes: &'a[u8],
+    object_members: Vec<(&'a[u8], JsonValue<'a>)>,
+    array_elements: Vec<JsonValue<'a>>
 }
 
-fn parse_json_object<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
+
+#[derive(Debug)]
+pub struct Json<'a> {
+    root: JsonValue<'a>,
+    data: JsonData<'a>
+}
+
+pub fn parse_json_bytes<'a>(json_bytes: &'a [u8]) -> Result<Json<'a>> {
     time_function!();
-    let mut members = Vec::<(&'a [u8], JsonValue<'a>)>::new();
+
+    let mut json_data: JsonData<'a> = JsonData {
+        bytes: json_bytes,
+        object_members: Vec::<(&[u8], JsonValue)>::new(),
+        array_elements: Vec::<JsonValue>::new()
+    };
+    let mut processing_index = 0;
+    let token_option = parse_token(json_bytes, &mut processing_index);
+    let root = match token_option {
+        Ok(JsonToken::ObjectStart) => {
+            match parse_json_object(&mut json_data, &mut processing_index) {
+                Ok(root) => { root },
+                Err(e) => return Err(e)
+            }
+        },
+        Ok(JsonToken::ArrayStart) => {
+            match parse_json_array(&mut json_data, &mut processing_index) {
+                Ok(root) => { root },
+                Err(e) => return Err(e)
+            }
+        },
+        Ok(_) => return Err(Error::new(InvalidData, "ERROR: Json must have an object or array as the root. Nothing may exist but whitespace after the root.")),
+        Err(e) => return Err(e)
+    };
+
+    let result: Json<'a> = Json {
+        root,
+        data: json_data
+    };
+
+    return Ok(result);
+}
+
+fn parse_json_object<'a>(json: &mut JsonData<'a>, parsing_index: &mut usize) -> Result<JsonValue<'a>> {
+    time_function!();
+    let start = json.object_members.len();
     loop {
-        match parse_token(json_bytes, advancing_index)? {
+        match parse_token(json.bytes, parsing_index)? {
             JsonToken::String(key_str) => {
-                members.push((key_str, match parse_token(json_bytes, advancing_index)? {
-                    JsonToken::ObjectStart => parse_json_object(json_bytes, advancing_index)?,
-                    JsonToken::ArrayStart => parse_json_array(json_bytes, advancing_index)?,
-                    JsonToken::String(s) => JsonValue::String(s),
-                    JsonToken::Number(n) => JsonValue::Number(n),
-                    JsonToken::Boolean(b) => JsonValue::Boolean(b),
-                    JsonToken::Null => JsonValue::Null,
+                match parse_token(json.bytes, parsing_index)? {
+                    JsonToken::ObjectStart => {
+                        let object_index = json.object_members.len();
+                        json.object_members.push((key_str, JsonValue::Null));
+                        let json_object = parse_json_object(json, parsing_index)?;
+                        json.object_members[object_index].1 = json_object;
+                    },
+                    JsonToken::ArrayStart => {
+                        let array_index = json.object_members.len();
+                        json.object_members.push((key_str, JsonValue::Null));
+                        let json_array = parse_json_array(json, parsing_index)?;
+                        json.object_members[array_index].1 = json_array;
+                    },
+                    JsonToken::String(s) => json.object_members.push((key_str, JsonValue::String(s))),
+                    JsonToken::Number(n) => json.object_members.push((key_str, JsonValue::Number(n))),
+                    JsonToken::Boolean(b) => json.object_members.push((key_str, JsonValue::Boolean(b))),
+                    JsonToken::Null => json.object_members.push((key_str, JsonValue::Null)),
                     JsonToken::ObjectTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected object member value but found end of object.")); }
                     JsonToken::ArrayTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected object member value but found end of array.")); }
-                }));
+                };
             },
-            JsonToken::ObjectTerminate => { return Ok(JsonValue::Object{ key_val_pairs: members }); },
-            _ => { return Err(Error::new(InvalidData, "ERROR: Expected a string for a key in a json object.")); }
+            JsonToken::ObjectTerminate => { return Ok(JsonValue::Object{ start_index: start, end_index: json.object_members.len() }); },
+            _ => { return Err(Error::new(InvalidData, "ERROR: Expected a string for a key in a json object.")) }
         }
     }
 }
 
-fn parse_json_array<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonValue<'a>> {
+fn parse_json_array<'a>(json: &mut JsonData<'a>, parsing_index: &mut usize) -> Result<JsonValue<'a>> {
     time_function!();
-    let mut elements = Vec::<JsonValue<'a>>::new();
+    let start = json.array_elements.len();
     loop {
-        elements.push(match parse_token(json_bytes, advancing_index)? {
-            JsonToken::ObjectStart => parse_json_object(json_bytes, advancing_index)?,
-            JsonToken::ArrayStart => parse_json_array(json_bytes, advancing_index)?,
-            JsonToken::String(s) => JsonValue::String(s),
-            JsonToken::Number(n) => JsonValue::Number(n),
-            JsonToken::Boolean(b) => JsonValue::Boolean(b),
-            JsonToken::Null => JsonValue::Null,
-            JsonToken::ArrayTerminate => { return Ok(JsonValue::Array{ elements: elements }); },
+        let token = parse_token(json.bytes, parsing_index)?;
+        match token {
+            JsonToken::ObjectStart => {
+                let object_index = json.array_elements.len();
+                json.array_elements.push(JsonValue::Null); // Easier navigation if the parent has a seat reserved before it's children.
+                let json_object = parse_json_object(json, parsing_index)?;
+                json.array_elements[object_index] = json_object;
+            },
+            JsonToken::ArrayStart => {
+                let array_index = json.array_elements.len();
+                json.array_elements.push(JsonValue::Null); // Easier navigation if the parent has a seat reserved before it's children.
+                let json_array = parse_json_array(json, parsing_index)?;
+                json.array_elements[array_index] = json_array;
+            },
+            JsonToken::String(s) => json.array_elements.push(JsonValue::String(s)),
+            JsonToken::Number(n) => json.array_elements.push(JsonValue::Number(n)),
+            JsonToken::Boolean(b) => json.array_elements.push(JsonValue::Boolean(b)),
+            JsonToken::Null => json.array_elements.push(JsonValue::Null),
+            JsonToken::ArrayTerminate => { return Ok(JsonValue::Array{ start_index: start, end_index: json.array_elements.len() }); },
             JsonToken::ObjectTerminate => { return Err(Error::new(InvalidData, "ERROR: Expected array element but found end of an object.")); }
-        })
+        }
     }
 }
 
-fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<JsonToken<'a>> {
+fn parse_token<'a>(json_bytes: &'a [u8], parsing_index: &mut usize) -> Result<JsonToken<'a>> {
     time_function!();
 
-    while *advancing_index < json_bytes.len() {
+    while *parsing_index < json_bytes.len() {
 
         let check_slice = |s: &[u8], i: &mut usize| -> bool {
             let start_i = *i;
@@ -92,24 +153,24 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
             return json_bytes[start_i..*i].eq(s)
         };
 
-        let mut byte = json_bytes[*advancing_index];
-        *advancing_index += 1; // index first, as it is expected to advance before returning from function
+        let mut byte = json_bytes[*parsing_index];
+        *parsing_index += 1; // index first, as it is expected to advance before returning from function
         match byte {
             b'{' => { return Ok(JsonToken::ObjectStart) },
             b'}' => { return Ok(JsonToken::ObjectTerminate) },
             b'[' => { return Ok(JsonToken::ArrayStart) },
             b']' => { return Ok(JsonToken::ArrayTerminate) },
             b'"' => {
-                let start_str_index = *advancing_index;
-                while *advancing_index < json_bytes.len() {
-                    match json_bytes[*advancing_index] {
-                        b'\\' => { *advancing_index += 2; }
+                let start_str_index = *parsing_index;
+                while *parsing_index < json_bytes.len() {
+                    match json_bytes[*parsing_index] {
+                        b'\\' => { *parsing_index += 2; }
                         b'"' => {
-                            let end_quote_index = *advancing_index;
-                            *advancing_index += 1;
+                            let end_quote_index = *parsing_index;
+                            *parsing_index += 1;
                             return Ok(JsonToken::String(&json_bytes[start_str_index..end_quote_index]));
                         },
-                        _ => { *advancing_index += 1; }
+                        _ => { *parsing_index += 1; }
                     }
                 }
             },
@@ -119,25 +180,25 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
                 let sign: f64;
                 if byte == b'-' {
                     sign = -1.0;
-                    byte = json_bytes[*advancing_index];
-                    *advancing_index += 1;
+                    byte = json_bytes[*parsing_index];
+                    *parsing_index += 1;
                 } else {
                     sign = 1.0;
                     if byte == b'+' { 
-                        byte = json_bytes[*advancing_index];
-                        *advancing_index += 1; 
+                        byte = json_bytes[*parsing_index];
+                        *parsing_index += 1; 
                     }
                 }
 
                 // pull integer
                 let mut integer: f64 = (byte - b'0') as f64;
-                while *advancing_index < json_bytes.len() {
-                    byte = json_bytes[*advancing_index];
+                while *parsing_index < json_bytes.len() {
+                    byte = json_bytes[*parsing_index];
 
                     match byte {
                         b'0'..=b'9' => {
                             integer = (integer * 10.0) + (byte - b'0') as f64;
-                            *advancing_index += 1;
+                            *parsing_index += 1;
                         },
                         _ => {break;}
                     }
@@ -146,17 +207,17 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
                 // pull fraction
                 let mut fract: f64 = 0.0;
                 if byte == b'.' {
-                    *advancing_index += 1;
+                    *parsing_index += 1;
                     let mut fract_mul: f64 = 1.0 / 10.0;
 
-                    while *advancing_index < json_bytes.len() {
-                        byte = json_bytes[*advancing_index];
+                    while *parsing_index < json_bytes.len() {
+                        byte = json_bytes[*parsing_index];
     
                         match byte {
                             b'0'..=b'9' => {
                                 fract += fract_mul * (byte - b'0') as f64;
                                 fract_mul *= 1.0 / 10.0;
-                                *advancing_index += 1; 
+                                *parsing_index += 1; 
                             },
                             _ => {break;}
                         }
@@ -167,23 +228,23 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
                 let mut exp: i32 = 0;
                 let mut exp_sign: i32 = 1;
                 if byte == b'e' || byte == b'E' {
-                    *advancing_index += 1;
+                    *parsing_index += 1;
 
-                    if json_bytes[*advancing_index] == b'-' {
+                    if json_bytes[*parsing_index] == b'-' {
                         exp_sign = -1;
-                        *advancing_index += 1;
+                        *parsing_index += 1;
                     } else if byte == b'+' { 
-                        *advancing_index += 1; 
+                        *parsing_index += 1; 
                     }
 
-                    while *advancing_index < json_bytes.len() {
-                        byte = json_bytes[*advancing_index];
+                    while *parsing_index < json_bytes.len() {
+                        byte = json_bytes[*parsing_index];
     
                         match byte {
                             b'0'..=b'9' => {
                                 exp *= 10;
                                 exp += (byte - b'0') as i32;
-                                *advancing_index += 1; 
+                                *parsing_index += 1; 
                             },
                             _ => { break; }
                         }
@@ -196,19 +257,93 @@ fn parse_token<'a>(json_bytes: &'a [u8], advancing_index: &mut usize) -> Result<
             },
             b' ' | b'\t' | b'\n' | b'\r' | b','|b':' => {}, // ignore whitespace, commas, colons
             b't' => {
-                return if check_slice(b"rue", advancing_index) { Ok(JsonToken::Boolean(true)) }
+                return if check_slice(b"rue", parsing_index) { Ok(JsonToken::Boolean(true)) }
                 else { Err(Error::new(InvalidData, "ERROR: Invalid token starting with 't'")) }
             },
             b'f' => {
-                return if check_slice(b"alse", advancing_index) { Ok(JsonToken::Boolean(false)) } 
+                return if check_slice(b"alse", parsing_index) { Ok(JsonToken::Boolean(false)) } 
                 else { Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'f'")) }
             },
             b'n' => {
-                return if check_slice(b"ull", advancing_index) { Ok(JsonToken::Null) }
+                return if check_slice(b"ull", parsing_index) { Ok(JsonToken::Null) }
                 else { Err(Error::new(InvalidData, "ERROR: Invalid token starting with 'n'")) }
             },
             _ => { return Err(Error::new(InvalidData, "ERROR: Parsing invalid token.")); } 
         }
     }
     return Err(Error::new(InvalidData, "ERROR: Unexpectedly reached end of json file."));
+}
+
+pub struct JsonContext<'a> {
+    parent: JsonValue<'a>,
+    child_index: usize
+}
+
+impl Json<'_> {
+
+    pub fn get_root_context(&self) -> JsonContext {
+        return JsonContext {
+            parent: self.root,
+            child_index: 0
+        }
+    }
+
+    pub fn open_collection<'a>(&self, element: JsonValue<'a>) -> JsonContext<'a> {
+        match element {
+            JsonValue::Object{ start_index, end_index: _ } => {
+                return JsonContext {
+                    parent: element,
+                    child_index: start_index
+                }
+            },
+            JsonValue::Array{ start_index, end_index: _ } => {
+                return JsonContext {
+                    parent: element,
+                    child_index: start_index
+                }
+            },
+            _ => {
+                return JsonContext {
+                    parent: element,
+                    child_index: 0
+                }
+            }
+        }
+    }
+
+    pub fn get_next_element(&self, context: &mut JsonContext) -> Option<(&[u8], JsonValue)> {
+        return match context.parent {
+            JsonValue::Array { start_index: _, end_index } => {
+                if context.child_index >= end_index { None }
+                else {
+                    let value = self.data.array_elements[context.child_index];
+                    match value {
+                        JsonValue::Array{ start_index: _, end_index } => {
+                            context.child_index = end_index;
+                        },
+                        _ => {
+                            context.child_index += 1;
+                        }
+                    }
+                    Some((b"", value))
+                }
+            },
+            JsonValue::Object { start_index: _, end_index } => {
+                if context.child_index >= end_index { None }
+                else {
+                    let (name, value) = self.data.object_members[context.child_index];
+                    match value {
+                        JsonValue::Object{ start_index: _, end_index } => {
+                            context.child_index = end_index;
+                        },
+                        _ => {
+                            context.child_index += 1;
+                        }
+                    }
+                    Some((name, value))
+                }
+            },
+            _ => None
+        }
+    }
 }
