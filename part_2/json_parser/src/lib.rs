@@ -54,8 +54,7 @@ pub fn parse_json_bytes<'a>(json_bytes: &'a [u8]) -> Result<Json<'a>> {
         array_elements: Vec::<JsonValue>::new()
     };
     let mut processing_index = 0;
-    let token_option = parse_token(json_bytes, &mut processing_index);
-    let root = match token_option {
+    let root = match parse_token(json_bytes, &mut processing_index) {
         Ok(JsonToken::ObjectStart) => {
             match parse_json_object(&mut json_data, &mut processing_index) {
                 Ok(root) => { root },

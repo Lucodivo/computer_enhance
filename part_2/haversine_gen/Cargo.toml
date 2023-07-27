@@ -9,3 +9,6 @@ edition = "2021"
 rand_casey = { path = "../rand_casey" }
 haversine = { path = "../haversine" }
 profiler ={ path = "../profiler" }
+
+[features]
+profile = []

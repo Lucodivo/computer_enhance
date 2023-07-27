@@ -1,3 +1,5 @@
+use profiler::*;
+
 fn square(x: f64) -> f64 { 
     x * x 
 }
@@ -8,6 +10,7 @@ fn radians(degrees: f64) -> f64 {
 
 // EarthRadius is generally expected to be 6372.8
 pub fn haversine(x0: f64, y0: f64, x1: f64, y1: f64, earth_radius: Option<f64>) -> f64 {
+    time_function!();
     
     let lat1 = y0;
     let lat2 = y1;

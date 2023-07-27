@@ -11,3 +11,6 @@ haversine_gen = { path = "haversine_gen" }
 json_parser = { path = "json_parser" }
 clocks = { path = "clocks" }
 profiler = { path = "profiler" }
+
+[features]
+profile = ["json_parser/profile", "haversine_gen/profile", "haversine/profile"]

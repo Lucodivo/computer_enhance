@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 haversine = { path = "../haversine" }
 profiler ={ path = "../profiler" }
+
+[features]
+profile = []

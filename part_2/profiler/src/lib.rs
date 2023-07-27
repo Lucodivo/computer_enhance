@@ -38,7 +38,8 @@ pub struct Profiler {
     cpu_freq: u64, 
     profiles: [Profile; PROFILE_CAPACITY],
     open_stamps: [ProfilerStamp; PROFILE_CAPACITY],
-    open_stamps_count: usize 
+    open_stamps_count: usize,
+    time_teardown: bool
 }
 pub static mut PROFILER: Profiler = Profiler{ 
     cpu_freq: 0,
@@ -54,14 +55,18 @@ pub static mut PROFILER: Profiler = Profiler{
         index: 0, 
         stamp: 0 
     }; PROFILE_CAPACITY],
-    open_stamps_count: 0
+    open_stamps_count: 0,
+    time_teardown: false
 };
+
 impl Profiler {
-    fn init(&mut self) {
+    pub fn init(&mut self) {
         self.cpu_freq = measure_cpu_freq(100);
         self.register("Profiler", 0);
     }
-    fn deinit(&mut self) {
+    pub fn deinit(&mut self) {
+        if self.time_teardown { self.unregister() }
+
         // manually deregister the profiler profile
         let now = read_cpu_timer();
         self.open_stamps_count -= 1;
@@ -117,6 +122,7 @@ impl Profiler {
     }
     
     pub fn unregister(&mut self) {
+
         let now = read_cpu_timer();
 
         self.open_stamps_count -= 1;
@@ -139,6 +145,12 @@ impl Profiler {
         }
     }
 
+    pub fn time_app_teardown(&mut self) {
+        self.time_teardown = true;
+        static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() }); 
+        self.register("application teardown", *PROFILE_INDEX); 
+    }
+
 }
 
 /*
@@ -148,6 +160,7 @@ Calling this macro twice in the same function will *NOT* compile.
 macro_rules! time_function {
     // `()` indicates that the macro takes no argument.
     () => {
+        #[cfg(feature = "profile")]
         unsafe {
             fn f() {}
             fn type_name_of<T>(_: T) -> &'static str { std::any::type_name::<T>() }
@@ -156,11 +169,12 @@ macro_rules! time_function {
                 let func_name_start = &name[..name.len() - 3].rfind(':').expect("Failed to find function name.") + 1;
                 let func_name_end = name.len() - 3; // remove the trailing "::f"
                 &name[func_name_start..func_name_end]
-             });
+            });
             static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
             PROFILER.register(*PROFILE_TAG, *PROFILE_INDEX); 
         }
 
+        #[cfg(feature = "profile")]
         let _defer_unregister = Defer::new( || {
             unsafe { PROFILER.unregister(); }
         });
@@ -171,10 +185,13 @@ macro_rules! time_function {
 macro_rules! time_block {
     // `()` indicates that the macro takes no argument.
     ( $msg:expr ) => {
+        #[cfg(feature = "profile")]
         unsafe { 
             static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
             PROFILER.register($msg, *PROFILE_INDEX);
         }
+        
+        #[cfg(feature = "profile")]
         let _defer_unregister = Defer::new(|| {
             unsafe { PROFILER.unregister(); }
         });
@@ -184,6 +201,7 @@ macro_rules! time_block {
 #[macro_export]
 macro_rules! time_assignment_rhs  {
     ($x:stmt) => {
+        #[cfg(feature = "profile")]
         unsafe { 
             static PROFILE_TAG: Lazy<&'static str> = Lazy::new(|| {
                 let stmt = stringify!($x);
@@ -195,6 +213,7 @@ macro_rules! time_assignment_rhs  {
             PROFILER.register(*PROFILE_TAG, *PROFILE_INDEX); 
         }
         $x;
+        #[cfg(feature = "profile")]
         unsafe { PROFILER.unregister(); }
     }
 }
@@ -202,6 +221,7 @@ macro_rules! time_assignment_rhs  {
 #[macro_export]
 macro_rules! time_assignment  {
     ($x:stmt) => {
+        #[cfg(feature = "profile")]
         unsafe {        
             static PROFILE_TAG: Lazy<&'static str> = Lazy::new(|| {
                 let stmt = stringify!($x);
@@ -215,6 +235,7 @@ macro_rules! time_assignment  {
             PROFILER.register(*PROFILE_TAG, *PROFILE_INDEX); 
         }
         $x;
+        #[cfg(feature = "profile")]
         unsafe { PROFILER.unregister(); }
     }
 }
@@ -231,6 +252,7 @@ macro_rules! time_assignments {
 #[macro_export]
 macro_rules! time_open {
     ( $msg:expr ) => {
+        #[cfg(feature = "profile")]
         unsafe {            
             static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() }); 
             PROFILER.register($msg, *PROFILE_INDEX); 
@@ -241,10 +263,25 @@ macro_rules! time_open {
 #[macro_export]
 macro_rules! time_close {
     () => {
+        #[cfg(feature = "profile")]
         unsafe { PROFILER.unregister(); }
     }
 }
 
-pub fn profiler_setup() { unsafe { PROFILER.init(); } }
+#[macro_export]
+macro_rules! profiler_setup_defer_teardown {
+    () => {
+        // This is kept even if not profiling, as it does not add any overhead during the running of the application
+        unsafe { PROFILER.init(); } 
+            
+        let _defer_unregister = Defer::new(|| { unsafe { PROFILER.deinit(); } });
+    }
+}
 
-pub fn profiler_teardown() { unsafe { PROFILER.deinit(); } }
+#[macro_export]
+macro_rules! time_app_teardown {
+    () => {
+        #[cfg(feature = "profile")]
+        unsafe { PROFILER.time_app_teardown(); }
+    }
+}
