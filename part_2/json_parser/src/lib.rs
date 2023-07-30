@@ -80,7 +80,6 @@ pub fn parse_json_bytes<'a>(json_bytes: &'a [u8]) -> Result<Json<'a>> {
 }
 
 fn parse_json_object<'a>(json: &mut JsonData<'a>, parsing_index: &mut usize) -> Result<JsonValue<'a>> {
-    time_function!();
     let start = json.object_members.len();
     loop {
         match parse_token(json.bytes, parsing_index)? {
@@ -113,7 +112,6 @@ fn parse_json_object<'a>(json: &mut JsonData<'a>, parsing_index: &mut usize) -> 
 }
 
 fn parse_json_array<'a>(json: &mut JsonData<'a>, parsing_index: &mut usize) -> Result<JsonValue<'a>> {
-    time_function!();
     let start = json.array_elements.len();
     loop {
         let token = parse_token(json.bytes, parsing_index)?;
@@ -141,7 +139,6 @@ fn parse_json_array<'a>(json: &mut JsonData<'a>, parsing_index: &mut usize) -> R
 }
 
 fn parse_token<'a>(json_bytes: &'a [u8], parsing_index: &mut usize) -> Result<JsonToken<'a>> {
-    time_function!();
 
     while *parsing_index < json_bytes.len() {
 

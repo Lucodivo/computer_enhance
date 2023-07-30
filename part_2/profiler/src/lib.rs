@@ -1,29 +1,30 @@
 // NOTE: This profiler is absolutely not multi-threaded safe
+// NOTE: The profiler is aggressively removed from non-profile feature builds to ensure
+//      that it does not affect the program in any way.
+
 pub use utils::Defer;
+
+#[cfg(feature = "profile")]
 pub use once_cell::sync::Lazy;
 
+#[cfg(feature = "profile")]
+pub use std::mem::drop;
+
+#[cfg(feature = "profile")]
 use clocks::{measure_cpu_freq, clocks_to_millisecs, read_cpu_timer};
+
+#[cfg(feature = "profile")]
 use utils::{ printable_freq, printable_large_num};
 
-#[derive(Clone, Copy)]
-struct Profile { 
-    tag: &'static str,
-    duration: u64,
-    open_count: u64,
-    closed_count: u64,
-    child_duration: i64
-}
-
-#[derive(Clone, Copy)]
-struct ProfilerStamp {
-    tag: &'static str,
-    index: usize,
-    stamp: u64
-}
+#[cfg(feature = "profile")]
+const PROFILE_CAPACITY: usize = 4096;
+#[cfg(feature = "profile")]
+static EMPTY_TAG: &str = "";
 
 // NOTE: This is only used for the profiler macros. DO NOT use this for anything else. 
+#[cfg(feature = "profile")]
 #[allow(non_snake_case)]
-pub fn __PROFILER__COUNTER__() -> usize {
+pub fn __GLOBAL_PROFILER__COUNTER__() -> usize {
     static mut COUNTER: usize = 0;
     unsafe {
         // Counting starting at 1 is intended and not to be changed
@@ -33,175 +34,196 @@ pub fn __PROFILER__COUNTER__() -> usize {
     }
 }
 
-const PROFILE_CAPACITY: usize = 4096;
-pub struct Profiler { 
-    cpu_freq: u64, 
-    profiles: [Profile; PROFILE_CAPACITY],
-    open_stamps: [ProfilerStamp; PROFILE_CAPACITY],
-    open_stamps_count: usize,
-    time_teardown: bool
+#[cfg(feature = "profile")]
+#[derive(Clone, Copy, Default)]
+pub struct ProfileAnchor {
+    tag: &'static str,
+    elapsed_exclusive: u64,
+    elapsed_inclusive: u64,
+    invocations: u64,
 }
-pub static mut PROFILER: Profiler = Profiler{ 
-    cpu_freq: 0,
-    profiles: [Profile{ 
-        tag: "_", 
-        duration: 0,
-        open_count: 0, 
-        closed_count: 0, 
-        child_duration: 0 
-    }; PROFILE_CAPACITY],
-    open_stamps: [ProfilerStamp{ 
-        tag: "_", 
-        index: 0, 
-        stamp: 0 
-    }; PROFILE_CAPACITY],
-    open_stamps_count: 0,
-    time_teardown: false
-};
 
+#[cfg(feature = "profile")]
+pub struct Profiler {
+    profiles: [ProfileAnchor; PROFILE_CAPACITY],
+    creation_stamp: u64
+}
+#[cfg(feature = "profile")]
+pub static mut GLOBAL_PROFILER: Profiler = Profiler{ 
+    profiles: [ProfileAnchor{ tag: EMPTY_TAG, elapsed_exclusive: 0, elapsed_inclusive: 0, invocations: 0 }; PROFILE_CAPACITY],
+    creation_stamp: 0
+};
+#[cfg(feature = "profile")]
+pub static mut GLOBAL_PROFILER_SCOPE: usize = 0;
+
+#[cfg(feature = "profile")]
+pub struct ProfileBlock {
+    tag: &'static str,
+    creation_stamp: u64,
+    old_elapsed_inclusive: u64,
+    parent_index: usize,
+    profile_index: usize
+}
+
+#[cfg(feature = "profile")]
+impl ProfileBlock {
+    pub fn new(tag: &'static str, profile_index: usize) -> Self {
+        let parent_index;
+        let old_elapsed_inclusive;
+        unsafe {
+            parent_index = GLOBAL_PROFILER_SCOPE;
+            GLOBAL_PROFILER_SCOPE = profile_index;
+
+            old_elapsed_inclusive = GLOBAL_PROFILER.profiles[profile_index].elapsed_inclusive;
+        };
+        ProfileBlock {
+            tag,
+            creation_stamp: read_cpu_timer(),
+            old_elapsed_inclusive,
+            parent_index,
+            profile_index
+        }
+    }
+}
+
+#[cfg(feature = "profile")]
+impl Drop for ProfileBlock {
+    fn drop(&mut self) {
+        let elapsed: u64 = read_cpu_timer() - self.creation_stamp;
+        unsafe {
+            GLOBAL_PROFILER_SCOPE = self.parent_index;
+
+            let parent_profile = &mut GLOBAL_PROFILER.profiles[self.parent_index];
+            let profile = &mut GLOBAL_PROFILER.profiles[self.profile_index];
+
+            parent_profile.elapsed_exclusive = parent_profile.elapsed_exclusive.wrapping_sub(elapsed);
+            profile.elapsed_exclusive = profile.elapsed_exclusive.wrapping_add(elapsed);
+            profile.elapsed_inclusive = self.old_elapsed_inclusive + elapsed;
+            profile.invocations += 1;
+            profile.tag = self.tag;
+        }
+    }
+}
+
+#[cfg(feature = "profile")]
 impl Profiler {
     pub fn init(&mut self) {
-        self.cpu_freq = measure_cpu_freq(100);
-        self.register("Profiler", 0);
+        unsafe { 
+            GLOBAL_PROFILER.creation_stamp = read_cpu_timer(); 
+            GLOBAL_PROFILER.profiles[0].tag = "Application";
+        }
     }
-    pub fn deinit(&mut self) {
-        if self.time_teardown { self.unregister() }
 
-        // manually deregister the profiler profile
-        let now = read_cpu_timer();
-        self.open_stamps_count -= 1;
-        assert_eq!(self.open_stamps_count, 0, "A profile was registered without being unregistered or vice versa.");
-        let profiler_stamp = &self.open_stamps[0];
+    pub fn print_and_deinit(&mut self) {
+        let end_stamp = read_cpu_timer();
+        let cpu_freq = measure_cpu_freq(100);
+
+        let total_clocks = end_stamp - self.creation_stamp;
+        let total_millisecs = clocks_to_millisecs(total_clocks, cpu_freq);
+
+        // manually "drop" application-wide profile anchor
         let profiler_profile = &mut self.profiles[0];
-        profiler_profile.tag = profiler_stamp.tag;
-        profiler_profile.duration += now - profiler_stamp.stamp;
-        profiler_profile.closed_count += 1;
-        let profiler_profile = &self.profiles[0];
+        profiler_profile.elapsed_inclusive = total_clocks;
+        profiler_profile.elapsed_exclusive = profiler_profile.elapsed_exclusive.wrapping_add(total_clocks);
+        let clocks_profiled = profiler_profile.elapsed_inclusive - profiler_profile.elapsed_exclusive;
 
-        let total_clocks = profiler_profile.duration;
-        let total_millisecs = clocks_to_millisecs(profiler_profile.duration, self.cpu_freq);
+        print!("\n====== Profiler Results *START* =======");
 
-        println!("\n====== Profiler Results *START* =======\n");
-        
-        let clocks_column_title = format!("Clocks @ {}", printable_freq(self.cpu_freq));
-        println!("{:<40}{:<25}{:<10}{}\n", "Tag (Invocations)", clocks_column_title, "Percent", "w/ Children");
+        let clocks_column_title = format!("Clocks @ {}", printable_freq(cpu_freq));
+        println!("\n{:<40}{:<25}{:<10}{}\n", "Tag (Invocations)", clocks_column_title, "Percent", "w/ Children");
 
-        let mut index = 1;
-        while self.profiles[index].open_count > 0 {
-            let profile = &self.profiles[index];
-            assert!(profile.open_count == profile.closed_count, "Profile, with tag {}, was not registered/unregistered an equal amount of times.", profile.tag);
-            assert!(profile.child_duration >= 0, "Profile, with tag {}, has a negative child duration.", profile.tag);
-            let duration_minus_children = profile.duration - profile.child_duration as u64;
-            let percent_minus_children = duration_minus_children as f64 / total_clocks as f64 * 100.0;
-            let percent_with_children = profile.duration as f64 / total_clocks as f64 * 100.0;
-            let title_str = format!("{} ({}):", profile.tag, printable_large_num(profile.closed_count));
-            println!("{:<40}{:<25}{:<10.2}{:.2}", title_str, printable_large_num(duration_minus_children), percent_minus_children, percent_with_children);
-            
-            index += 1;
+        for profile in self.profiles[1..].iter() {
+            if profile.tag != EMPTY_TAG {
+                    let percent_exclusive = profile.elapsed_exclusive as f64 / total_clocks as f64 * 100.0;
+                    let percent_inclusive = profile.elapsed_inclusive as f64 / total_clocks as f64 * 100.0;
+                    let title_str = format!("{} ({}):", profile.tag, printable_large_num(profile.invocations));
+                    println!("{:<40}{:<25}{:<10.2}{:.2}", title_str, printable_large_num(profile.elapsed_exclusive), percent_exclusive, percent_inclusive);
+            } else {
+                break;
+            }
         }
         
-        let total_percent_profiled = profiler_profile.child_duration as f64 / total_clocks as f64 * 100.0;
-        println!("\n{:<40}{:<25}{:<10.2}", "Total profiled:", printable_large_num(profiler_profile.child_duration as u64), total_percent_profiled);
+        let percent_profiled = clocks_profiled as f64 / total_clocks as f64 * 100.0;
+        println!("\n{:<40}{:<25}{:<10.2}", "Total profiled:", printable_large_num(clocks_profiled as u64), percent_profiled);
         
         let total_clocks_str = format!("{} ({:.3}ms)", printable_large_num(total_clocks), total_millisecs);
-        println!("\n{:<40}{:<25}", "Total runtime clocks:", total_clocks_str);
-        
-        println!("\n====== Profiler Results *END* =======\n");
+        println!("\n{:<40}{:<25}\n", "Total runtime clocks:", total_clocks_str);
+
+        println!("====== Profiler Results *END* =======\n");
     }
+}
 
-    pub fn register(&mut self, tag: &'static str, index: usize) {
-
-        let profile_stamp = &mut self.open_stamps[self.open_stamps_count];
-        self.open_stamps_count += 1;
-
-        self.profiles[index].open_count += 1;
-        
-        profile_stamp.tag = tag;
-        profile_stamp.index = index;
-        profile_stamp.stamp = read_cpu_timer();
+#[cfg(feature = "profile")]
+#[macro_export]
+macro_rules! time_block {
+    // `()` indicates that the macro takes no argument.
+    ( $tag:expr ) => {
+        let __profiler_index: usize;
+        unsafe {
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __GLOBAL_PROFILER__COUNTER__() });
+            __profiler_index = *PROFILE_INDEX;
+        };
+        let __profile_block = profiler::ProfileBlock::new($tag, __profiler_index);
     }
-    
-    pub fn unregister(&mut self) {
-
-        let now = read_cpu_timer();
-
-        self.open_stamps_count -= 1;
-        let profile_stamp = &self.open_stamps[self.open_stamps_count];
-
-        let duration = now - profile_stamp.stamp;
-
-        let profile = &mut self.profiles[profile_stamp.index];
-        profile.closed_count += 1;
-        if profile.open_count == profile.closed_count {
-            profile.tag = profile_stamp.tag;
-            profile.duration += duration;
-        } else {
-            profile.child_duration -= duration as i64;
-        }
-
-        let parent_stamp = &self.open_stamps[self.open_stamps_count - 1];
-        if parent_stamp.index != profile_stamp.index {
-            self.profiles[parent_stamp.index].child_duration += duration as i64;
-        }
-    }
-
-    pub fn time_app_teardown(&mut self) {
-        self.time_teardown = true;
-        static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() }); 
-        self.register("application teardown", *PROFILE_INDEX); 
-    }
-
 }
 
 /*
 Calling this macro twice in the same function will *NOT* compile.
 */
+#[cfg(feature = "profile")]
 #[macro_export]
 macro_rules! time_function {
     // `()` indicates that the macro takes no argument.
     () => {
-        #[cfg(feature = "profile")]
+        let __profiler_tag: &'static str;
         unsafe {
             fn f() {}
+            #[inline(always)]
             fn type_name_of<T>(_: T) -> &'static str { std::any::type_name::<T>() }
             static PROFILE_TAG: Lazy<&'static str> = Lazy::new(|| { 
-                let name = type_name_of(f);
-                let func_name_start = &name[..name.len() - 3].rfind(':').expect("Failed to find function name.") + 1;
-                let func_name_end = name.len() - 3; // remove the trailing "::f"
-                &name[func_name_start..func_name_end]
+                    let name = type_name_of(f);
+                    let func_name_start = &name[..name.len() - 3].rfind(':').expect("Failed to find function name.") + 1;
+                    let func_name_end = name.len() - 3; // remove the trailing "::f"
+                    &name[func_name_start..func_name_end]
             });
-            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
-            PROFILER.register(*PROFILE_TAG, *PROFILE_INDEX); 
-        }
-
-        #[cfg(feature = "profile")]
-        let _defer_unregister = Defer::new( || {
-            unsafe { PROFILER.unregister(); }
-        });
+            __profiler_tag = *PROFILE_TAG;
+        };
+        time_block!(__profiler_tag);
     }
 }
 
+#[cfg(feature = "profile")]
 #[macro_export]
-macro_rules! time_block {
-    // `()` indicates that the macro takes no argument.
-    ( $msg:expr ) => {
-        #[cfg(feature = "profile")]
-        unsafe { 
-            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
-            PROFILER.register($msg, *PROFILE_INDEX);
-        }
+macro_rules! profiler_setup_defer_teardown {
+    () => {
+        // This is kept even if not profiling, as it does not add any overhead during the running of the application
+        unsafe { GLOBAL_PROFILER.init(); } 
         
-        #[cfg(feature = "profile")]
-        let _defer_unregister = Defer::new(|| {
-            unsafe { PROFILER.unregister(); }
-        });
+        let _defer_unregister = Defer::new(|| { unsafe { GLOBAL_PROFILER.print_and_deinit(); } });
     }
 }
 
+#[cfg(feature = "profile")]
+#[macro_export]
+macro_rules! time_section {
+    ( $tag:expr, $($x:stmt);* $(;)? ) => {
+        let __profiler_index: usize;
+        unsafe {
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __GLOBAL_PROFILER__COUNTER__() });
+            __profiler_index = *PROFILE_INDEX;
+        };
+        let __profile_section = profiler::ProfileBlock::new($tag, __profiler_index);
+        $($x;)*
+        drop(__profile_section);
+    }
+}
+
+#[cfg(feature = "profile")]
 #[macro_export]
 macro_rules! time_assignment_rhs  {
     ($x:stmt) => {
-        #[cfg(feature = "profile")]
+        let __profiler_tag: &'static str;
+        let __profiler_index: usize;
         unsafe { 
             static PROFILE_TAG: Lazy<&'static str> = Lazy::new(|| {
                 let stmt = stringify!($x);
@@ -209,19 +231,22 @@ macro_rules! time_assignment_rhs  {
                     stmt[equal_index + 1..stmt.len()-1].trim_start()
                 } else { &stmt[..stmt.len()-1] };
             });
-            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() });
-            PROFILER.register(*PROFILE_TAG, *PROFILE_INDEX); 
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __GLOBAL_PROFILER__COUNTER__() });
+            __profiler_tag = *PROFILE_TAG;
+            __profiler_index = *PROFILE_INDEX;
         }
+        let __profile_section = profiler::ProfileBlock::new(__profiler_tag, __profiler_index);
         $x;
-        #[cfg(feature = "profile")]
-        unsafe { PROFILER.unregister(); }
+        drop(__profile_section);
     }
 }
 
+#[cfg(feature = "profile")]
 #[macro_export]
 macro_rules! time_assignment  {
     ($x:stmt) => {
-        #[cfg(feature = "profile")]
+        let __profiler_tag: &'static str;
+        let __profiler_index: usize;
         unsafe {        
             static PROFILE_TAG: Lazy<&'static str> = Lazy::new(|| {
                 let stmt = stringify!($x);
@@ -231,57 +256,79 @@ macro_rules! time_assignment  {
                     } else { &stmt }
                 } else { &stmt }
             });
-            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() }); 
-            PROFILER.register(*PROFILE_TAG, *PROFILE_INDEX); 
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __GLOBAL_PROFILER__COUNTER__() });
+            __profiler_tag = *PROFILE_TAG;
+            __profiler_index = *PROFILE_INDEX;
         }
+        let __profile_section = profiler::ProfileBlock::new(__profiler_tag, __profiler_index);
         $x;
-        #[cfg(feature = "profile")]
-        unsafe { PROFILER.unregister(); }
+        drop(__profile_section);
     }
 }
 
+#[cfg(feature = "profile")]
 #[macro_export]
 macro_rules! time_assignments {
-    ($($x:stmt);* $(;)?) => {
-        $(
-            time_assignment!($x);
-        )*
-    };
+    ($($x:stmt);* $(;)?) => { $( time_assignment!($x); )* };
 }
 
+
+/* 
+    Alternative macros for when profiling is *NOT* enabled.
+ */
+#[cfg(not(feature = "profile"))]
+pub use utils::{ printable_freq, printable_large_num};
+#[cfg(not(feature = "profile"))]
+pub use clocks::{measure_cpu_freq, clocks_to_millisecs, read_cpu_timer};
+
+#[cfg(not(feature = "profile"))]
 #[macro_export]
-macro_rules! time_open {
-    ( $msg:expr ) => {
-        #[cfg(feature = "profile")]
-        unsafe {            
-            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __PROFILER__COUNTER__() }); 
-            PROFILER.register($msg, *PROFILE_INDEX); 
-        }
-    }
-}
+macro_rules! time_block { ( $msg:expr ) => {} }
 
+#[cfg(not(feature = "profile"))]
 #[macro_export]
-macro_rules! time_close {
-    () => {
-        #[cfg(feature = "profile")]
-        unsafe { PROFILER.unregister(); }
-    }
-}
+macro_rules! time_function { () => {} }
 
+#[cfg(not(feature = "profile"))]
 #[macro_export]
 macro_rules! profiler_setup_defer_teardown {
     () => {
-        // This is kept even if not profiling, as it does not add any overhead during the running of the application
-        unsafe { PROFILER.init(); } 
-            
-        let _defer_unregister = Defer::new(|| { unsafe { PROFILER.deinit(); } });
+        // Note: I still want to get some information on the total runtime of the program.
+        let start_stamp = read_cpu_timer();
+        
+        let _defer_unregister = Defer::new(|| { 
+            let end_stamp = read_cpu_timer();
+            let cpu_freq = measure_cpu_freq(100);
+            let total_clocks = end_stamp - start_stamp;
+            let total_millisecs = clocks_to_millisecs(total_clocks, cpu_freq);
+            let total_clocks_str = format!("{} ({:.3}ms)", printable_large_num(total_clocks), total_millisecs);
+            println!("\nProfiler turned off.");
+            println!("Clocks @ {}", printable_freq(cpu_freq));
+            println!("Total runtime clocks: {}\n", total_clocks_str);
+         });
     }
 }
 
+#[cfg(not(feature = "profile"))]
 #[macro_export]
-macro_rules! time_app_teardown {
-    () => {
-        #[cfg(feature = "profile")]
-        unsafe { PROFILER.time_app_teardown(); }
-    }
+macro_rules! time_section {
+    ( $tag:expr, $($x:stmt);* $(;)? ) => { $($x;)* }
+}
+
+#[cfg(not(feature = "profile"))]
+#[macro_export]
+macro_rules! time_assignment_rhs  {
+    ($x:stmt) => { $x; }
+}
+
+#[cfg(not(feature = "profile"))]
+#[macro_export]
+macro_rules! time_assignment  {
+    ($x:stmt) => { $x; }
+}
+
+#[cfg(not(feature = "profile"))]
+#[macro_export]
+macro_rules! time_assignments {
+    ($($x:stmt);* $(;)?) => { $($x)* };
 }

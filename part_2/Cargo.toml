@@ -13,4 +13,4 @@ clocks = { path = "clocks" }
 profiler = { path = "profiler" }
 
 [features]
-profile = ["json_parser/profile", "haversine_gen/profile", "haversine/profile"]
+profile = ["profiler/profile"]

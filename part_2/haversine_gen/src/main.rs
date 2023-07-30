@@ -20,6 +20,7 @@ fn main() {
     let gen_type = args[1].parse::<String>().unwrap().to_lowercase();
     let seed = args[2].parse::<u64>().unwrap();
     let num_pairs = args[3].parse::<u64>().unwrap();
+    assert!( num_pairs < 30_000_000, "{}", "num_pairs must be less than 30 million");
 
     let point_pairs: Vec<PointPair>;
     if gen_type == "uniform"  {
