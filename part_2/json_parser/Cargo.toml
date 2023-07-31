@@ -8,3 +8,7 @@ edition = "2021"
 [dependencies]
 haversine = { path = "../haversine" }
 profiler ={ path = "../profiler" }
+
+# test dependencies
+[dev-dependencies]
+matches = "0.1.10"

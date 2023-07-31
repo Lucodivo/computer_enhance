@@ -46,12 +46,14 @@ pub struct ProfileAnchor {
 #[cfg(feature = "profile")]
 pub struct Profiler {
     profiles: [ProfileAnchor; PROFILE_CAPACITY],
-    creation_stamp: u64
+    creation_stamp: u64,
+    teardown_start_stamp: u64
 }
 #[cfg(feature = "profile")]
 pub static mut GLOBAL_PROFILER: Profiler = Profiler{ 
     profiles: [ProfileAnchor{ tag: EMPTY_TAG, elapsed_exclusive: 0, elapsed_inclusive: 0, invocations: 0 }; PROFILE_CAPACITY],
-    creation_stamp: 0
+    creation_stamp: 0,
+    teardown_start_stamp: 0
 };
 #[cfg(feature = "profile")]
 pub static mut GLOBAL_PROFILER_SCOPE: usize = 0;
@@ -115,6 +117,9 @@ impl Profiler {
     }
 
     pub fn print_and_deinit(&mut self) {
+        if self.teardown_start_stamp > 0 {
+            ProfileBlock{ tag: "app teardown", creation_stamp: self.teardown_start_stamp, old_elapsed_inclusive: 0, parent_index: 0, profile_index: __GLOBAL_PROFILER__COUNTER__() };
+        }
         let end_stamp = read_cpu_timer();
         let cpu_freq = measure_cpu_freq(100);
 
@@ -151,6 +156,8 @@ impl Profiler {
 
         println!("====== Profiler Results *END* =======\n");
     }
+
+    pub fn time_teardown(&mut self) { self.teardown_start_stamp = read_cpu_timer(); }
 }
 
 #[cfg(feature = "profile")]
@@ -272,6 +279,9 @@ macro_rules! time_assignments {
     ($($x:stmt);* $(;)?) => { $( time_assignment!($x); )* };
 }
 
+#[cfg(feature = "profile")]
+#[macro_export]
+macro_rules! time_teardown { () => { unsafe{ GLOBAL_PROFILER.time_teardown(); } } }
 
 /* 
     Alternative macros for when profiling is *NOT* enabled.
@@ -332,3 +342,7 @@ macro_rules! time_assignment  {
 macro_rules! time_assignments {
     ($($x:stmt);* $(;)?) => { $($x)* };
 }
+
+#[cfg(not(feature = "profile"))]
+#[macro_export]
+macro_rules! time_teardown { () => {} }

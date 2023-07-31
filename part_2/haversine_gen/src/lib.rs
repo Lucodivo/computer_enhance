@@ -1,4 +1,6 @@
 use std::fs;
+
+#[allow(unused_imports)]
 use profiler::*;
 
 const ELEMENT_SIZE: usize = std::mem::size_of::<f64>();

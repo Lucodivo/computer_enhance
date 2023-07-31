@@ -7,12 +7,11 @@ use profiler::*;
 // Known things that don't match spec:
 //  - Root must be an object/array
 //  - Anything following the root object/array is ignored
-//  - Commas are ignored in general, so extra commas are allowed
+//  - Commas are ignored and treated the same as whitespace
 //  - (Spec is uncertain on this but...) Keys in objects are not unique.
 //      - HashMap/FxHashMap were slower than linear searching in my limited usecase.
 //  - Strings are returned as just the bytes between two non-escaped quotes. Escape slashes and their following character are not removed.
 
-#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum JsonValue<'a> {
     Object{ start_index: usize, end_index: usize }, // Note: "Keys" are not unique within a json object :(
     Array{ start_index: usize, end_index: usize },
@@ -31,15 +30,12 @@ enum JsonToken<'a> {
     Null
 }
 
-#[derive(Debug)]
 struct JsonData<'a> {
     bytes: &'a[u8],
     object_members: Vec<(&'a[u8], JsonValue<'a>)>,
     array_elements: Vec<JsonValue<'a>>
 }
 
-
-#[derive(Debug)]
 pub struct Json<'a> {
     root: JsonValue<'a>,
     data: JsonData<'a>
@@ -87,13 +83,13 @@ fn parse_json_object<'a>(json: &mut JsonData<'a>, parsing_index: &mut usize) -> 
                 match parse_token(json.bytes, parsing_index)? {
                     JsonToken::ObjectStart => {
                         let object_index = json.object_members.len();
-                        json.object_members.push((key_str, JsonValue::Null));
+                        json.object_members.push((key_str, JsonValue::Null)); // Easier navigation if the parent's index is it's children.
                         let json_object = parse_json_object(json, parsing_index)?;
                         json.object_members[object_index].1 = json_object;
                     },
                     JsonToken::ArrayStart => {
                         let array_index = json.object_members.len();
-                        json.object_members.push((key_str, JsonValue::Null));
+                        json.object_members.push((key_str, JsonValue::Null)); // Easier navigation if the parent's index is it's children.
                         let json_array = parse_json_array(json, parsing_index)?;
                         json.object_members[array_index].1 = json_array;
                     },
@@ -118,13 +114,13 @@ fn parse_json_array<'a>(json: &mut JsonData<'a>, parsing_index: &mut usize) -> R
         match token {
             JsonToken::ObjectStart => {
                 let object_index = json.array_elements.len();
-                json.array_elements.push(JsonValue::Null); // Easier navigation if the parent has a seat reserved before it's children.
+                json.array_elements.push(JsonValue::Null); // Easier navigation if the parent's index is it's children.
                 let json_object = parse_json_object(json, parsing_index)?;
                 json.array_elements[object_index] = json_object;
             },
             JsonToken::ArrayStart => {
                 let array_index = json.array_elements.len();
-                json.array_elements.push(JsonValue::Null); // Easier navigation if the parent has a seat reserved before it's children.
+                json.array_elements.push(JsonValue::Null); // Easier navigation if the parent's index is it's children.
                 let json_array = parse_json_array(json, parsing_index)?;
                 json.array_elements[array_index] = json_array;
             },
@@ -271,7 +267,7 @@ fn parse_token<'a>(json_bytes: &'a [u8], parsing_index: &mut usize) -> Result<Js
 }
 
 pub struct JsonContext<'a> {
-    parent: JsonValue<'a>,
+    parent: &'a JsonValue<'a>,
     child_index: usize
 }
 
@@ -279,43 +275,38 @@ impl Json<'_> {
 
     pub fn get_root_context(&self) -> JsonContext {
         return JsonContext {
-            parent: self.root,
+            parent: &self.root,
             child_index: 0
         }
     }
 
-    pub fn open_collection<'a>(&self, element: JsonValue<'a>) -> JsonContext<'a> {
-        match element {
+    pub fn open_collection<'a>(&self, element: &'a JsonValue<'a>) -> Option<JsonContext<'a>> {
+       return match element {
             JsonValue::Object{ start_index, end_index: _ } => {
-                return JsonContext {
+                Some(JsonContext {
                     parent: element,
-                    child_index: start_index
-                }
+                    child_index: *start_index
+                })
             },
             JsonValue::Array{ start_index, end_index: _ } => {
-                return JsonContext {
+                Some(JsonContext {
                     parent: element,
-                    child_index: start_index
-                }
+                    child_index: *start_index
+                })
             },
-            _ => {
-                return JsonContext {
-                    parent: element,
-                    child_index: 0
-                }
-            }
+            _ => None
         }
     }
 
-    pub fn get_next_element(&self, context: &mut JsonContext) -> Option<(&[u8], JsonValue)> {
+    pub fn get_next_element(&self, context: &mut JsonContext) -> Option<(&[u8], &JsonValue)> {
         return match context.parent {
             JsonValue::Array { start_index: _, end_index } => {
-                if context.child_index >= end_index { None }
+                if context.child_index >= *end_index { None }
                 else {
-                    let value = self.data.array_elements[context.child_index];
+                    let value = &self.data.array_elements[context.child_index];
                     match value {
                         JsonValue::Array{ start_index: _, end_index } => {
-                            context.child_index = end_index;
+                            context.child_index = *end_index;
                         },
                         _ => {
                             context.child_index += 1;
@@ -325,12 +316,12 @@ impl Json<'_> {
                 }
             },
             JsonValue::Object { start_index: _, end_index } => {
-                if context.child_index >= end_index { None }
+                if context.child_index >= *end_index { None }
                 else {
-                    let (name, value) = self.data.object_members[context.child_index];
+                    let (name, value) = &self.data.object_members[context.child_index];
                     match value {
                         JsonValue::Object{ start_index: _, end_index } => {
-                            context.child_index = end_index;
+                            context.child_index = *end_index;
                         },
                         _ => {
                             context.child_index += 1;

@@ -10,7 +10,9 @@
             "request": "launch",
             "cargo": {
                 "args": [
-                    "build"
+                    "build",
+                    "--features",
+                    "profile"
                 ]
             },
             "args": ["data/seed_123123/data_20_flex.json", "data/seed_123123/data_20_haveranswer.f64"],
