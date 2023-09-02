@@ -167,7 +167,7 @@ macro_rules! time_block {
     ( $tag:expr ) => {
         let __profiler_index: usize;
         unsafe {
-            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __GLOBAL_PROFILER__COUNTER__() });
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { profiler::__GLOBAL_PROFILER__COUNTER__() });
             __profiler_index = *PROFILE_INDEX;
         };
         let __profile_block = profiler::ProfileBlock::new($tag, __profiler_index);
@@ -195,7 +195,7 @@ macro_rules! time_function {
             });
             __profiler_tag = *PROFILE_TAG;
         };
-        time_block!(__profiler_tag);
+        profiler::time_block!(__profiler_tag);
     }
 }
 
@@ -204,9 +204,9 @@ macro_rules! time_function {
 macro_rules! profiler_setup_defer_teardown {
     () => {
         // This is kept even if not profiling, as it does not add any overhead during the running of the application
-        unsafe { GLOBAL_PROFILER.init(); } 
+        unsafe { profiler::GLOBAL_PROFILER.init(); } 
         
-        let _defer_unregister = Defer::new(|| { unsafe { GLOBAL_PROFILER.print_and_deinit(); } });
+        let _defer_unregister = Defer::new(|| { unsafe { profiler::GLOBAL_PROFILER.print_and_deinit(); } });
     }
 }
 
@@ -216,7 +216,7 @@ macro_rules! time_section {
     ( $tag:expr, $($x:stmt);* $(;)? ) => {
         let __profiler_index: usize;
         unsafe {
-            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __GLOBAL_PROFILER__COUNTER__() });
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { profiler::__GLOBAL_PROFILER__COUNTER__() });
             __profiler_index = *PROFILE_INDEX;
         };
         let __profile_section = profiler::ProfileBlock::new($tag, __profiler_index);
@@ -238,7 +238,7 @@ macro_rules! time_assignment_rhs  {
                     stmt[equal_index + 1..stmt.len()-1].trim_start()
                 } else { &stmt[..stmt.len()-1] };
             });
-            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __GLOBAL_PROFILER__COUNTER__() });
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { profiler::__GLOBAL_PROFILER__COUNTER__() });
             __profiler_tag = *PROFILE_TAG;
             __profiler_index = *PROFILE_INDEX;
         }
@@ -263,7 +263,7 @@ macro_rules! time_assignment  {
                     } else { &stmt }
                 } else { &stmt }
             });
-            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { __GLOBAL_PROFILER__COUNTER__() });
+            static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { profiler::__GLOBAL_PROFILER__COUNTER__() });
             __profiler_tag = *PROFILE_TAG;
             __profiler_index = *PROFILE_INDEX;
         }
@@ -276,12 +276,12 @@ macro_rules! time_assignment  {
 #[cfg(feature = "profile")]
 #[macro_export]
 macro_rules! time_assignments {
-    ($($x:stmt);* $(;)?) => { $( time_assignment!($x); )* };
+    ($($x:stmt);* $(;)?) => { $( profiler::time_assignment!($x); )* };
 }
 
 #[cfg(feature = "profile")]
 #[macro_export]
-macro_rules! time_teardown { () => { unsafe{ GLOBAL_PROFILER.time_teardown(); } } }
+macro_rules! time_teardown { () => { unsafe{ profiler::GLOBAL_PROFILER.time_teardown(); } } }
 
 /* 
     Alternative macros for when profiling is *NOT* enabled.

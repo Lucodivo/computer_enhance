@@ -4,8 +4,40 @@ extern crate matches;
 #[cfg(test)]
 mod tests {
 
+    enum OpCode {
+        Add,
+        Subtract,
+        Multiply,
+        Divide
+    }
+
+    
+
+    struct {
+        int bytes[5];
+        OpCode op_code;
+
+    }
+
     #[allow(unused_imports)]
     use json_parser::{JsonValue, parse_json_bytes};
+
+    #[test]
+    fn not_a_test() {
+
+        pub enum Bullshit {
+            ObjectStart{ index: usize, another: usize },
+            ObjectEnd{ index: usize },
+            ArrayStart{ index: usize },
+            ArrayEnd{ index: usize },
+            Number(f64),
+            Boolean(bool),
+            Null
+        }
+        
+        let size_of_value = std::mem::size_of::<Bullshit>();
+        assert_eq!(size_of_value, 15);
+    }
 
     #[test]
     fn parse_nothing() {
