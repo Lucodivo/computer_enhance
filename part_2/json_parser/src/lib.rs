@@ -38,7 +38,7 @@ pub struct Json<'a> {
 }
 
 pub fn parse_json_bytes<'a>(json_bytes: &'a [u8]) -> Result<Json<'a>> {
-    time_function!();
+    time_bandwidth_function!(json_bytes.len() as u64);
 
     let mut json_data: Json<'a> = Json {
         bytes: json_bytes,

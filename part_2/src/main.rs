@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::env;
+use std::mem::size_of;
 use json_parser::{Json, JsonValue};
 use haversine_gen::parse_haversine_binary_file;
 
@@ -19,18 +20,26 @@ fn main() {
     let usage = "\nUsage: \thaversine_gen [haversine_input.json]\n\
                           \thaversine_gen [haversine_input.json] [answers.f64]\n";
 
-    let input_filename = args[1].parse::<String>().unwrap();
     assert!(args.len() >= 2 && args.len() <= 3, "{}", usage);
+    let input_filename = args[1].parse::<String>().unwrap();
     );
-
-    time_assignments!(
-    let json_bytes = fs::read(input_filename).expect("Failed to read json input file.");
+    
+    let json_bytes: Vec<u8>;
+    {
+        let file_metadata = fs::metadata(&input_filename).expect("Failed to read json input file.");
+        time_bandwidth_block!("fs::read", file_metadata.len());
+        println!("file size: {}", file_metadata.len());
+        json_bytes = fs::read(&input_filename).expect("Failed to read json input file.");
+    }
     let json = json_parser::parse_json_bytes(&json_bytes).expect("Failed to parse json input file.");
     let point_pairs = pairs_from_root_json(&json);
-    let haversine_vals = point_pairs.iter().map(|pp| haversine::haversine(pp.x0, pp.y0, pp.x1, pp.y1, None)).collect::<Vec<f64>>();
+    let haversine_vals: Vec<f64>;
+    {
+        time_bandwidth_block!("haversine distances", (size_of::<PointPair>() * point_pairs.len()) as u64);
+        haversine_vals = point_pairs.iter().map(|pp| haversine::haversine(pp.x0, pp.y0, pp.x1, pp.y1, None)).collect::<Vec<f64>>();
+    }
     let pair_count_f64 = point_pairs.len() as f64;
     let haversine_mean = haversine_vals.iter().fold(0.0_f64, |acc, &x| acc + (x / pair_count_f64));
-    );
 
     if args.len() == 3 {
         time_block!("Check answers file");

@@ -38,9 +38,10 @@ pub fn __GLOBAL_PROFILER__COUNTER__() -> usize {
 #[derive(Clone, Copy, Default)]
 pub struct ProfileAnchor {
     tag: &'static str,
-    elapsed_exclusive: u64,
-    elapsed_inclusive: u64,
+    elapsed_exclusive: u64, // Does not include children
+    elapsed_inclusive: u64, // Does include children
     invocations: u64,
+    processed_byte_count: u64,
 }
 
 #[cfg(feature = "profile")]
@@ -51,7 +52,7 @@ pub struct Profiler {
 }
 #[cfg(feature = "profile")]
 pub static mut GLOBAL_PROFILER: Profiler = Profiler{ 
-    profiles: [ProfileAnchor{ tag: EMPTY_TAG, elapsed_exclusive: 0, elapsed_inclusive: 0, invocations: 0 }; PROFILE_CAPACITY],
+    profiles: [ProfileAnchor{ tag: EMPTY_TAG, elapsed_exclusive: 0, elapsed_inclusive: 0, invocations: 0, processed_byte_count: 0 }; PROFILE_CAPACITY],
     creation_stamp: 0,
     teardown_start_stamp: 0
 };
@@ -69,14 +70,15 @@ pub struct ProfileBlock {
 
 #[cfg(feature = "profile")]
 impl ProfileBlock {
-    pub fn new(tag: &'static str, profile_index: usize) -> Self {
+    pub fn new(tag: &'static str, profile_index: usize, byte_count: u64) -> Self {
         let parent_index;
         let old_elapsed_inclusive;
         unsafe {
             parent_index = GLOBAL_PROFILER_SCOPE;
             GLOBAL_PROFILER_SCOPE = profile_index;
-
-            old_elapsed_inclusive = GLOBAL_PROFILER.profiles[profile_index].elapsed_inclusive;
+            let profile_anchor = &mut GLOBAL_PROFILER.profiles[profile_index];
+            old_elapsed_inclusive = profile_anchor.elapsed_inclusive;
+            profile_anchor.processed_byte_count += byte_count;
         };
         ProfileBlock {
             tag,
@@ -135,14 +137,23 @@ impl Profiler {
         print!("\n====== Profiler Results *START* =======");
 
         let clocks_column_title = format!("Clocks @ {}", printable_freq(cpu_freq));
-        println!("\n{:<40}{:<25}{:<10}{}\n", "Tag (Invocations)", clocks_column_title, "Percent", "w/ Children");
+        println!("\n{:<40}{:<25}{:<10}{:<15}{}\n", "Tag (Invocations)", clocks_column_title, "Percent", "w/ Children", "Bandwidth");
 
         for profile in self.profiles[1..].iter() {
             if profile.tag != EMPTY_TAG {
                     let percent_exclusive = profile.elapsed_exclusive as f64 / total_clocks as f64 * 100.0;
                     let percent_inclusive = profile.elapsed_inclusive as f64 / total_clocks as f64 * 100.0;
                     let title_str = format!("{} ({}):", profile.tag, printable_large_num(profile.invocations));
-                    println!("{:<40}{:<25}{:<10.2}{:.2}", title_str, printable_large_num(profile.elapsed_exclusive), percent_exclusive, percent_inclusive);
+                    let bandwidth = if profile.processed_byte_count <= 0 { String::from("") } else { 
+                        let megabyte = 1024.0*1024.0;
+                        let gigabyte = 1024.0*megabyte;
+                        let seconds = profile.elapsed_inclusive as f64 / cpu_freq as f64;
+                        let bytes_per_second = profile.processed_byte_count as f64 / seconds;
+                        let megabytes = profile.processed_byte_count as f64 / megabyte;
+                        let gigabytes_per_second = bytes_per_second / gigabyte;
+                        format!("{:.3}mb @ {:.2}gb/s", megabytes, gigabytes_per_second)
+                    };
+                    println!("{:<40}{:<25}{:<10.2}{:<15.2}{}", title_str, printable_large_num(profile.elapsed_exclusive), percent_exclusive, percent_inclusive, bandwidth);
             } else {
                 break;
             }
@@ -162,15 +173,24 @@ impl Profiler {
 
 #[cfg(feature = "profile")]
 #[macro_export]
-macro_rules! time_block {
+macro_rules! time_bandwidth_block {
     // `()` indicates that the macro takes no argument.
-    ( $tag:expr ) => {
+    ( $tag:expr, $block_count:expr ) => {
         let __profiler_index: usize;
         unsafe {
             static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { profiler::__GLOBAL_PROFILER__COUNTER__() });
             __profiler_index = *PROFILE_INDEX;
         };
-        let __profile_block = profiler::ProfileBlock::new($tag, __profiler_index);
+        let __profile_block = profiler::ProfileBlock::new($tag, __profiler_index, $block_count);
+    }
+}
+
+#[cfg(feature = "profile")]
+#[macro_export]
+macro_rules! time_block {
+    // `()` indicates that the macro takes no argument.
+    ( $tag:expr ) => {
+        profiler::time_bandwidth_block!($tag, 0);
     }
 }
 
@@ -179,9 +199,9 @@ Calling this macro twice in the same function will *NOT* compile.
 */
 #[cfg(feature = "profile")]
 #[macro_export]
-macro_rules! time_function {
+macro_rules! time_bandwidth_function {
     // `()` indicates that the macro takes no argument.
-    () => {
+    ($byte_count: expr) => {
         let __profiler_tag: &'static str;
         unsafe {
             fn f() {}
@@ -195,8 +215,14 @@ macro_rules! time_function {
             });
             __profiler_tag = *PROFILE_TAG;
         };
-        profiler::time_block!(__profiler_tag);
+        profiler::time_bandwidth_block!(__profiler_tag, $byte_count);
     }
+}
+#[cfg(feature = "profile")]
+#[macro_export]
+macro_rules! time_function {
+    // `()` indicates that the macro takes no argument.
+    () => { profiler::time_bandwidth_function!(0); }
 }
 
 #[cfg(feature = "profile")]
@@ -219,7 +245,7 @@ macro_rules! time_section {
             static PROFILE_INDEX: Lazy<usize> = Lazy::new(|| { profiler::__GLOBAL_PROFILER__COUNTER__() });
             __profiler_index = *PROFILE_INDEX;
         };
-        let __profile_section = profiler::ProfileBlock::new($tag, __profiler_index);
+        let __profile_section = profiler::ProfileBlock::new($tag, __profiler_index, 0);
         $($x;)*
         drop(__profile_section);
     }
@@ -242,7 +268,7 @@ macro_rules! time_assignment_rhs  {
             __profiler_tag = *PROFILE_TAG;
             __profiler_index = *PROFILE_INDEX;
         }
-        let __profile_section = profiler::ProfileBlock::new(__profiler_tag, __profiler_index);
+        let __profile_section = profiler::ProfileBlock::new(__profiler_tag, __profiler_index, 0);
         $x;
         drop(__profile_section);
     }
@@ -267,7 +293,7 @@ macro_rules! time_assignment  {
             __profiler_tag = *PROFILE_TAG;
             __profiler_index = *PROFILE_INDEX;
         }
-        let __profile_section = profiler::ProfileBlock::new(__profiler_tag, __profiler_index);
+        let __profile_section = profiler::ProfileBlock::new(__profiler_tag, __profiler_index, 0);
         $x;
         drop(__profile_section);
     }
