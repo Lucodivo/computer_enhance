@@ -1,0 +1,94 @@
+-- Entering Modes --
+Normal (navigation) - initial mode - <Esc>|<C+[>|<C+c>
+Insert (typing) - i|a to enter before|after selection
+Replace (typing) - R
+Visual (selection) - v|V|<C-v> to enter Visual|Visual-Line|Visual-Block mode
+Command (:commands) - : to enter
+Explorer (file explorer) - :Ex from Command mode
+
+-- Commands --
+= General =
+	n<command> where n is an integer - perform <command> n times
+  <Esc>|<C-[> - enter normal mode
+
+= Normal =
+	i|a - insert mode before|after selection
+	j|k - cursor down|up
+	h|l - cursor left|right
+	w|b - move to beginning of next|previous word
+	e - move to end of word
+	0|$ - move to beginning|end of line
+	y|p - copy|paste to|from neovim clipboard
+	"+y|"+p - copy|paste to|from system clipboard
+	x - delete character
+	r - replace character
+	u|<C-r> - undo|redo
+	o|O - insert line below|above current line, enter Insert mode
+  I|A - move cursor to beginning|end of line, enter Insert mode
+  v|V|<C-v> - enter Visual|Visual-Line|Visual-Block mode
+	: - enter Command mode
+	yy|yw|y$ - yanks line|word|cursor-to-end-of-line
+  H|M|L - move cursor top|middle|bottom of screen
+	(|) - cursor to start of previous|next "sentence"
+	{|} - cursor to start of previous|next "paragraph"
+	<C-f>|<C-b> - move forward|back one page
+	gg|G - move cursor to first line of buffer
+	d|dd - delete selection|line
+  d{n}j - delete n rows below
+	D - delete cursor to end of line
+	. - repeat last action
+	?{s}|/{s} - search before|after cursor for {s}
+    ?\<{s}\> - search for whole word (no substring matches)
+		?{up|down} - access previous search term
+	  ?{s} \c|?{s} \C - search case insentive|sensitive
+	#|* - search back|forward for word under cursor
+  N|n - move to next search result
+  <C-w{}> - where {} is...
+				s|v - split window horizontally|vertically
+				w - switch between windows
+				q - close window
+				h|j|k|l - switch to window to left|down|up|right
+  <C-z> - minimize NeoVim
+	gt|gT - move to next/previous tab
+  {#}gt - move to {#} index tab	
+
+= Visual =
+  y - copy selection
+	d - delete selection
+	c - delete selection, enter Insert mode
+	p - paste to replace selection 
+  ab|ib - select a block|innerblock with ()
+	aB|iB - select a block|innerblock with {}
+	aw - select word
+	>|< - shift selection right|left
+	~ - swap lower/upper case
+
+= Command =
+	:e <absolute file path> - open file in buffer, enter Normal mode
+	:e <absolute directory path> - open directory in Explorer mode
+  :w - save file
+  :wa - save all open buffers
+  :s - search
+	:%s/foo/bar/g - search across all lines for foo and replace with bar
+    % - across all lines
+    s - search
+    /foo - for regex foo
+    /bar - to replace with
+    /g - all lines at once 
+  :bd|:bn|:bp - buffer delete|next|previous
+	:h - open help buffer
+  :set {x} - set {x}
+				{ic}|{noic} - ignore case, case sensitive
+  :sp|:vsp {file name} - open file in a horizontal|vertical split buffer
+	:ls - list all open buffers
+  :tabedit {filename} - open file as buffer in new tab
+	:tabs - list all open tabs
+  :tabclose - close current tab
+
+= Workflow examples =
+yyp
+  - copy line and post it below
+ddp/ddkP
+  - move line down/up
+V:s/{s1}/{s2}/g
+  - For a single line, replace all instances of string {s1} with {s2}
