@@ -1,3 +1,5 @@
+static TEST_FILE : &str = "../data/seed_123123/data_1000000_flex.json";
+
 struct RepetitionTestData {
     iterations: u64,
     total_clocks: u64,
@@ -21,7 +23,7 @@ struct FSReadRepetition {
 
 impl MeasureableAction for FSReadRepetition {
     fn action(&mut self) -> MeasureableActionResults {
-        self.file_bytes = std::fs::read("../data/seed_123123/data_1000000_flex.json").expect("Couldn't fs::read file");
+        self.file_bytes = std::fs::read(TEST_FILE).expect("Couldn't fs::read file");
         MeasureableActionResults {
             byte_count: self.file_bytes.len() as u64,
         }
@@ -33,6 +35,50 @@ impl MeasureableAction for FSReadRepetition {
     }
     fn tag(&self) -> &'static str{ "fs::read" }
 }
+
+struct FSFileRepetition {
+    file: Option<std::fs::File>,
+    file_bytes: Vec<u8>,
+}
+
+impl MeasureableAction for FSFileRepetition {
+    fn action(&mut self) -> MeasureableActionResults {
+        use std::io::Read;
+        self.file = Some(std::fs::File::open(TEST_FILE).expect("Couldn't fs::read file"));
+        if let Some(file) = &mut self.file {
+            let _ = file.read_to_end(&mut self.file_bytes).unwrap();
+        }
+        MeasureableActionResults {
+            byte_count: self.file_bytes.len() as u64,
+        }
+    }
+    fn reset(&mut self) {
+        self.file = None;
+        // this deallocates anything previously held on by file_bytes
+        // .clear() would not deallocate
+        self.file_bytes = Vec::new();
+    }
+    fn tag(&self) -> &'static str{ "fs::file" }
+}
+
+struct FSReadAsStringRepetition {
+    file_as_string: String,
+}
+
+impl MeasureableAction for FSReadAsStringRepetition {
+    fn action(&mut self) -> MeasureableActionResults {
+        self.file_as_string = std::fs::read_to_string(TEST_FILE).expect("Couldn't fs::read file");
+        MeasureableActionResults {
+            byte_count: self.file_as_string.len() as u64,
+        }
+    }
+    fn reset(&mut self) {
+        // this deallocates anything previously held on by file_bytes
+        // .clear() would not deallocate
+        self.file_as_string = String::new();
+    }
+    fn tag(&self) -> &'static str{ "fs::read_as_string" }
+}
 fn main() {
     let cpu_freq = clocks::measure_cpu_freq(1000);
 
@@ -42,6 +88,8 @@ fn main() {
 
     let mut measureable_actions: Vec<Box<dyn MeasureableAction>> = Vec::new();
     measureable_actions.push(Box::new(FSReadRepetition{ file_bytes: Vec::new() }));
+    measureable_actions.push(Box::new(FSFileRepetition{ file: None, file_bytes: Vec::new() }));
+    measureable_actions.push(Box::new(FSReadAsStringRepetition{ file_as_string: String::new() }));
         
     for measureable_action in &mut measureable_actions {
         let mut rtd = RepetitionTestData {
