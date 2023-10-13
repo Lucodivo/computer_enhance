@@ -21,6 +21,12 @@ struct FSReadRepetition {
     file_bytes: Vec<u8>,
 }
 
+impl FSReadRepetition {
+    fn new() -> Self {
+        Self { file_bytes: Vec::new(), }
+    }
+}
+
 impl MeasureableAction for FSReadRepetition {
     fn action(&mut self) -> MeasureableActionResults {
         self.file_bytes = std::fs::read(TEST_FILE).expect("Couldn't fs::read file");
@@ -39,6 +45,12 @@ impl MeasureableAction for FSReadRepetition {
 struct FSFileRepetition {
     file: Option<std::fs::File>,
     file_bytes: Vec<u8>,
+}
+
+impl FSFileRepetition {
+    fn new() -> Self {
+        Self { file: None, file_bytes: Vec::new(), }
+    }
 }
 
 impl MeasureableAction for FSFileRepetition {
@@ -65,6 +77,12 @@ struct FSReadAsStringRepetition {
     file_as_string: String,
 }
 
+impl FSReadAsStringRepetition {
+    fn new() -> Self {
+        Self { file_as_string: String::new(), }
+    }
+}
+
 impl MeasureableAction for FSReadAsStringRepetition {
     fn action(&mut self) -> MeasureableActionResults {
         self.file_as_string = std::fs::read_to_string(TEST_FILE).expect("Couldn't fs::read file");
@@ -79,6 +97,38 @@ impl MeasureableAction for FSReadAsStringRepetition {
     }
     fn tag(&self) -> &'static str{ "fs::read_as_string" }
 }
+
+struct FSReadBufferNoAllocRepetition {
+    file: Option<std::fs::File>,
+    file_buffer: Vec<u8>,
+}
+
+impl FSReadBufferNoAllocRepetition {
+    fn new() -> Self {
+        let file_metadata = std::fs::metadata(TEST_FILE).expect("Couldn't get fs::metadata for file");
+        Self { file: None, file_buffer: Vec::with_capacity(file_metadata.len() as usize), }
+    }
+}
+
+impl MeasureableAction for FSReadBufferNoAllocRepetition {
+    fn action(&mut self) -> MeasureableActionResults {
+        use std::io::Read;
+        self.file = Some(std::fs::File::open(TEST_FILE).expect("Couldn't fs::read file"));
+        let mut bytes_read = 0u64;
+        if let Some(file) = &mut self.file {
+            bytes_read = file.read_to_end(&mut self.file_buffer).unwrap() as u64;
+        }
+        MeasureableActionResults {
+            byte_count: bytes_read,
+        }
+    }
+    fn reset(&mut self) {
+        self.file = None;
+        self.file_buffer.clear();
+    }
+    fn tag(&self) -> &'static str{ "fs::read buffer no alloc" }
+}
+
 fn main() {
     let cpu_freq = clocks::measure_cpu_freq(1000);
 
@@ -87,9 +137,10 @@ fn main() {
     let max_clocks: u64 = max_secs * cpu_freq;
 
     let mut measureable_actions: Vec<Box<dyn MeasureableAction>> = Vec::new();
-    measureable_actions.push(Box::new(FSReadRepetition{ file_bytes: Vec::new() }));
-    measureable_actions.push(Box::new(FSFileRepetition{ file: None, file_bytes: Vec::new() }));
-    measureable_actions.push(Box::new(FSReadAsStringRepetition{ file_as_string: String::new() }));
+    measureable_actions.push(Box::new(FSReadRepetition::new()));
+    measureable_actions.push(Box::new(FSFileRepetition::new()));
+    measureable_actions.push(Box::new(FSReadAsStringRepetition::new()));
+    measureable_actions.push(Box::new(FSReadBufferNoAllocRepetition::new()));
         
     for measureable_action in &mut measureable_actions {
         let mut rtd = RepetitionTestData {
