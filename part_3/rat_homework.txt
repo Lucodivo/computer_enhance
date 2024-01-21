@@ -1,0 +1,14 @@
+                        dest      source 1  source 2
+    mov rax, 1         | slot 0 |         |    
+    mov rbx, 2         | slot 1 |         | 
+    mov rcx, 3         | slot 2 |         | 
+    mov rdx, 4         | slot 3 |         | 
+    add rax, rbx       | slot 4 | slot 0  | slot 1  
+    add rcx, rdx       | slot 5 | slot 2  | slot 3               
+    add rax, rcx       | slot 6 | slot 4  | slot 5              
+    mov rcx, rbx       | slot 1 | slot 1  |                
+    inc rax            | slot 7 | slot 6  |           
+    dec rcx            | slot 8 | slot 1  |           
+    sub rax, rbx       | slot 9 | slot 7  | slot 1               
+    sub rcx, rdx       | slot 10| slot 8  | slot 3               
+    sub rax, rcx       | slot 11| slot 9  | slot 10                
